@@ -1,0 +1,102 @@
+{
+  "theme": "LIGHT",
+  "archetype": "1_ORGANIC_EARTHY",
+  "colors": {
+    "background": "#F9F8F6",
+    "surface": "#FFFFFF",
+    "border": "#E5E0DA",
+    "text_primary": "#2D3142",
+    "text_secondary": "#4F5D75",
+    "primary": "#E07A5F",
+    "primary_hover": "#C96D55",
+    "secondary": "#81B29A",
+    "accent": "#D4A373",
+    "success": "#81B29A",
+    "warning": "#F2CC8F",
+    "error": "#E07A5F",
+    "neutral_tint": "#F4F3F0"
+  },
+  "typography": {
+    "font_family_headings": "Manrope, sans-serif",
+    "font_family_body": "Inter, sans-serif",
+    "h1": "text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tighter text-[#2D3142] leading-none",
+    "h2": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-[#2D3142]",
+    "h3": "text-xl sm:text-2xl font-semibold tracking-tight",
+    "h4": "text-lg sm:text-xl font-medium",
+    "body": "text-base text-[#4F5D75] leading-relaxed",
+    "small": "text-sm text-[#4F5D75]",
+    "labels": "text-xs font-bold uppercase tracking-[0.2em] text-[#D4A373]"
+  },
+  "layout_and_spacing": {
+    "grid_strategy": "Control Room Grid (Dense, Data Correlation)",
+    "base_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+    "gap": "gap-4 md:gap-6",
+    "container_padding": "p-6 md:p-8",
+    "card_padding": "p-6",
+    "borderRadius": "rounded-xl",
+    "borders": "border border-[#E5E0DA]"
+  },
+  "surfaces": {
+    "header": "bg-[#F9F8F6]/80 backdrop-blur-xl border-b border-[#E5E0DA] sticky top-0 z-50",
+    "sidebar": "bg-[#FFFFFF] border-r border-[#E5E0DA]",
+    "card": "bg-[#FFFFFF] border border-[#E5E0DA] rounded-xl shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300",
+    "button_primary": "bg-[#E07A5F] text-white rounded-lg px-6 py-2.5 font-medium hover:bg-[#C96D55] transition-colors focus:ring-2 focus:ring-[#E07A5F]/50",
+    "button_secondary": "bg-[#F4F3F0] text-[#2D3142] rounded-lg px-6 py-2.5 font-medium hover:bg-[#E5E0DA] transition-colors border border-[#E5E0DA]",
+    "input": "bg-[#F9F8F6] border border-[#E5E0DA] rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-[#81B29A] focus:border-[#81B29A] transition-all"
+  },
+  "motion": {
+    "hover": "transition-transform duration-200 ease-out",
+    "click": "active:scale-[0.98]",
+    "page_transition": "animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out",
+    "list_stagger": "staggered entrance animations for table rows and grid items"
+  },
+  "components": {
+    "navigation": "Left sidebar or top navbar with clear hierarchy, Logo, Nav Links (Dashboard, Notes, Invoices, E-Way Bills, Customers), and a User Profile component. Desktop: Always visible. Mobile: Hamburger menu.",
+    "tables": "Shadcn UI Tables for Invoices/Quotations/Customers. Left-aligned text, generous row padding (py-4), sticky header.",
+    "forms": "Shadcn Forms. Use floating labels or distinct overlines. Notes entry uses a large Textarea with an 'OCR Scan' secondary button next to it.",
+    "toast_notifications": "Sonner. For WhatsApp Mock Notifications, style the toast to resemble a WhatsApp message pop-up (green accent, app icon).",
+    "badges": "Rounded-full px-3 py-1 text-xs font-bold for status (Paid, Pending, Overdue, Generated)."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Stroke width 1.5, slightly oversized (w-5 h-5 for body, w-6 h-6 for headers)."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "logo",
+        "url": "https://images.pexels.com/photos/7661590/pexels-photo-7661590.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Minimalist geometric representation for brand logo",
+        "placement": "Header/Sidebar top left"
+      },
+      {
+        "category": "avatar",
+        "url": "https://images.pexels.com/photos/8117812/pexels-photo-8117812.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Professional assistant smiling",
+        "placement": "User profile avatar in header or settings"
+      },
+      {
+        "category": "empty_state",
+        "url": "https://images.pexels.com/photos/7661185/pexels-photo-7661185.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Minimalist placeholder image for empty states (no invoices, no notes)",
+        "placement": "Center of empty tables/lists"
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "All text over background must meet APCA or WCAG AA 4.5:1 minimum.",
+    "focus_states": "All interactive elements must have focus:ring-2 focus:ring-offset-2 focus:ring-[#81B29A].",
+    "test_attributes": "Add data-testid to all buttons, links, form inputs, and key UI elements (e.g., data-testid='generate-invoice-button')."
+  },
+  "instructions_to_main_agent": [
+    "Use Manrope for headings and Inter for body text via Google Fonts.",
+    "Implement a clean, data-dense Control Room layout (Archetype 1: Organic & Earthy) using the defined color palette.",
+    "Build the dashboard with Shadcn components (Cards, Tables, Forms, Dialogs). Customize Shadcn default styles to match the 'Organic & Earthy' theme (e.g., warmer greys, slightly rounded corners, soft shadows).",
+    "For the 'Notes Entry', build a split view or modal featuring a large text area and a prominent 'Extract via OCR' button.",
+    "For 'Invoice Generation', build a form that produces a Tally/GST format layout. Add a 'Generate E-Way Bill' one-click button in the invoice view.",
+    "Implement Sonner toasts styled like WhatsApp notifications for 'WhatsApp Reminders/Notification' mocks.",
+    "DO NOT use raw <input> or <select> elements. Always use Shadcn components.",
+    "Do not use transparent headers without backdrop-blur.",
+    "Use lucide-react for all icons."
+  ]
+}
