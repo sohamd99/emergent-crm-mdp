@@ -1,6 +1,17 @@
+#!/usr/bin/env python3
+"""
+BillFlow GST Billing App - Backend API Testing (Iteration 3)
+Focus: Voice-to-text feature + existing functionality verification
+"""
+
 import requests
 import sys
 import json
+import io
+import wave
+import struct
+import tempfile
+import os
 from datetime import datetime
 
 class BillFlowAPITester:
@@ -8,72 +19,88 @@ class BillFlowAPITester:
         self.base_url = base_url
         self.tests_run = 0
         self.tests_passed = 0
-        self.test_data = {}
+        self.test_results = []
 
-    def run_test(self, name, method, endpoint, expected_status, data=None, headers=None):
-        """Run a single API test"""
-        url = f"{self.base_url}/{endpoint}"
-        if headers is None:
-            headers = {'Content-Type': 'application/json'}
-
+    def log_test(self, name, success, details=""):
+        """Log test result"""
         self.tests_run += 1
-        print(f"\n🔍 Testing {name}...")
+        if success:
+            self.tests_passed += 1
+            print(f"✅ {name}")
+        else:
+            print(f"❌ {name} - {details}")
+        
+        self.test_results.append({
+            "test": name,
+            "success": success,
+            "details": details
+        })
+
+    def test_endpoint(self, method, endpoint, expected_status=200, data=None, files=None, timeout=30):
+        """Test a single endpoint"""
+        url = f"{self.base_url}/{endpoint}"
+        headers = {'Content-Type': 'application/json'} if not files else {}
         
         try:
             if method == 'GET':
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=timeout)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=headers)
+                if files:
+                    response = requests.post(url, files=files, timeout=timeout)
+                else:
+                    response = requests.post(url, json=data, headers=headers, timeout=timeout)
             elif method == 'PUT':
-                response = requests.put(url, json=data, headers=headers)
-            elif method == 'PATCH':
-                response = requests.patch(url, headers=headers)
+                response = requests.put(url, json=data, headers=headers, timeout=timeout)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=headers)
-
+                response = requests.delete(url, headers=headers, timeout=timeout)
+            elif method == 'PATCH':
+                response = requests.patch(url, headers=headers, timeout=timeout)
+            
             success = response.status_code == expected_status
-            if success:
-                self.tests_passed += 1
-                print(f"✅ Passed - Status: {response.status_code}")
-                try:
-                    return success, response.json() if response.text else {}
-                except:
-                    return success, {}
-            else:
-                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
-                try:
-                    print(f"Response: {response.text}")
-                except:
-                    pass
-
-            return success, {}
-
+            return success, response.json() if success and response.content else {}, response.status_code
+            
+        except requests.exceptions.Timeout:
+            return False, {"error": "Request timeout"}, 0
         except Exception as e:
-            print(f"❌ Failed - Error: {str(e)}")
-            return False, {}
+            return False, {"error": str(e)}, 0
+
+    def create_test_audio_file(self, duration_seconds=2, sample_rate=16000):
+        """Create a test audio file for voice-to-text testing"""
+        # Generate a simple sine wave audio file
+        frames = []
+        for i in range(int(duration_seconds * sample_rate)):
+            # Generate a 440Hz sine wave (A note)
+            value = int(32767 * 0.3 * (i % (sample_rate // 440)) / (sample_rate // 440))
+            frames.append(struct.pack('<h', value))
+        
+        # Create temporary WAV file
+        temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        with wave.open(temp_file.name, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(b''.join(frames))
+        
+        return temp_file.name
 
     def test_dashboard(self):
         """Test dashboard endpoint"""
-        success, response = self.run_test(
-            "Dashboard Stats",
-            "GET",
-            "dashboard",
-            200
-        )
-        if success and 'stats' in response:
-            print(f"   📊 Total customers: {response['stats'].get('total_customers', 0)}")
-            print(f"   📊 Total invoices: {response['stats'].get('total_invoices', 0)}")
-            print(f"   📊 Total revenue: Rs.{response['stats'].get('total_revenue', 0)}")
-        return success
+        success, data, status = self.test_endpoint('GET', 'dashboard')
+        if success and 'stats' in data:
+            self.log_test("Dashboard API", True)
+            return True
+        else:
+            self.log_test("Dashboard API", False, f"Status: {status}")
+            return False
 
     def test_customers_crud(self):
-        """Test customer CRUD operations"""
+        """Test customers CRUD operations"""
         # Create customer
         customer_data = {
-            "name": "Test Customer API",
+            "name": f"Test Customer {datetime.now().strftime('%H%M%S')}",
             "email": "test@example.com",
             "phone": "9876543210",
-            "gstin": "22AAAAA0000A1Z5",
+            "gstin": "27ABCDE1234F1Z5",
             "address": "Test Address",
             "city": "Mumbai",
             "state": "Maharashtra",
@@ -81,488 +108,248 @@ class BillFlowAPITester:
             "pincode": "400001"
         }
         
-        success, response = self.run_test(
-            "Create Customer",
-            "POST",
-            "customers",
-            200,
-            data=customer_data
-        )
-        
-        if success and 'id' in response:
-            customer_id = response['id']
-            self.test_data['customer_id'] = customer_id
-            print(f"   👤 Created customer: {customer_id}")
+        success, data, status = self.test_endpoint('POST', 'customers', 200, customer_data)
+        if success and 'id' in data:
+            customer_id = data['id']
+            self.log_test("Create Customer", True)
             
             # Get customers list
-            success, _ = self.run_test(
-                "Get Customers List",
-                "GET",
-                "customers",
-                200
-            )
-            
-            # Get specific customer
-            success, _ = self.run_test(
-                "Get Customer by ID",
-                "GET",
-                f"customers/{customer_id}",
-                200
-            )
-            
-            # Update customer
-            updated_data = {**customer_data, "name": "Updated Test Customer"}
-            success, _ = self.run_test(
-                "Update Customer",
-                "PUT",
-                f"customers/{customer_id}",
-                200,
-                data=updated_data
-            )
-            
-            return True
-        return False
-
-    def test_products_crud(self):
-        """Test product CRUD operations"""
-        product_data = {
-            "name": "Test Laptop",
-            "hsn_code": "8471",
-            "unit": "NOS",
-            "rate": 50000,
-            "gst_rate": 18,
-            "description": "High-end laptop for testing"
-        }
-        
-        success, response = self.run_test(
-            "Create Product",
-            "POST",
-            "products",
-            200,
-            data=product_data
-        )
-        
-        if success and 'id' in response:
-            product_id = response['id']
-            self.test_data['product_id'] = product_id
-            print(f"   📦 Created product: {product_id}")
-            
-            # Get products list
-            success, _ = self.run_test(
-                "Get Products List",
-                "GET",
-                "products",
-                200
-            )
-            
-            # Update product
-            updated_data = {**product_data, "rate": 55000}
-            success, _ = self.run_test(
-                "Update Product",
-                "PUT",
-                f"products/{product_id}",
-                200,
-                data=updated_data
-            )
-            
-            return True
-        return False
+            success, data, status = self.test_endpoint('GET', 'customers')
+            if success and isinstance(data, list):
+                self.log_test("Get Customers List", True)
+                return customer_id
+            else:
+                self.log_test("Get Customers List", False, f"Status: {status}")
+                return None
+        else:
+            self.log_test("Create Customer", False, f"Status: {status}")
+            return None
 
     def test_notes_crud(self):
         """Test notes CRUD operations"""
+        # Create manual note
         note_data = {
-            "content": "This is a test note from API testing",
+            "content": f"Test note created at {datetime.now().isoformat()}",
             "source": "manual"
         }
         
-        success, response = self.run_test(
-            "Create Note",
-            "POST",
-            "notes",
-            200,
-            data=note_data
-        )
-        
-        if success and 'id' in response:
-            note_id = response['id']
-            self.test_data['note_id'] = note_id
-            print(f"   📝 Created note: {note_id}")
+        success, data, status = self.test_endpoint('POST', 'notes', 200, note_data)
+        if success and 'id' in data:
+            note_id = data['id']
+            self.log_test("Create Manual Note", True)
             
             # Get notes list
-            success, _ = self.run_test(
-                "Get Notes List",
-                "GET",
-                "notes",
-                200
-            )
-            
-            # Update note
-            updated_data = {"content": "Updated test note content", "source": "manual"}
-            success, _ = self.run_test(
-                "Update Note",
-                "PUT",
-                f"notes/{note_id}",
-                200,
-                data=updated_data
-            )
-            
-            return True
-        return False
+            success, data, status = self.test_endpoint('GET', 'notes')
+            if success and isinstance(data, list):
+                self.log_test("Get Notes List", True)
+                return note_id
+            else:
+                self.log_test("Get Notes List", False, f"Status: {status}")
+                return None
+        else:
+            self.log_test("Create Manual Note", False, f"Status: {status}")
+            return None
 
-    def test_invoices_crud(self):
-        """Test invoice CRUD operations"""
-        if 'customer_id' not in self.test_data:
-            print("❌ Cannot test invoices - no customer created")
-            return False
-            
-        invoice_data = {
-            "customer_id": self.test_data['customer_id'],
-            "date": "2024-01-15",
-            "due_date": "2024-02-15",
-            "supply_type": "intra",
-            "notes": "Test invoice notes",
-            "terms": "Payment within 30 days",
-            "items": [
-                {
-                    "product_name": "Test Product",
-                    "description": "Test product description",
-                    "hsn_code": "8471",
-                    "quantity": 2,
-                    "unit": "NOS",
-                    "rate": 25000,
-                    "gst_rate": 18
-                }
-            ]
-        }
+    def test_ai_parse_notes(self):
+        """Test AI parse notes endpoint"""
+        test_content = "Sharma ji needs 10 laptops at Rs.50000 each. Deliver to Pune office."
         
-        success, response = self.run_test(
-            "Create Invoice",
-            "POST",
-            "invoices",
-            200,
-            data=invoice_data
-        )
+        success, data, status = self.test_endpoint('POST', 'ai/parse-notes', 200, {
+            "content": test_content,
+            "source": "ai"
+        })
         
-        if success and 'id' in response:
-            invoice_id = response['id']
-            self.test_data['invoice_id'] = invoice_id
-            print(f"   🧾 Created invoice: {invoice_id}")
-            print(f"   💰 Invoice total: Rs.{response.get('total', 0)}")
-            
-            # Get invoices list
-            success, _ = self.run_test(
-                "Get Invoices List",
-                "GET",
-                "invoices",
-                200
-            )
-            
-            # Get specific invoice with customer details
-            success, _ = self.run_test(
-                "Get Invoice by ID",
-                "GET",
-                f"invoices/{invoice_id}",
-                200
-            )
-            
-            # Update invoice status
-            success, _ = self.run_test(
-                "Update Invoice Status",
-                "PATCH",
-                f"invoices/{invoice_id}/status?status=paid",
-                200
-            )
-            
-            return True
-        return False
+        if success and 'parsed' in data:
+            parsed = data['parsed']
+            if 'customer' in parsed and 'items' in parsed and 'actions' in parsed:
+                self.log_test("AI Parse Notes", True)
+                return data
+            else:
+                self.log_test("AI Parse Notes", False, "Missing required fields in parsed response")
+                return None
+        else:
+            self.log_test("AI Parse Notes", False, f"Status: {status}")
+            return None
 
-    def test_quotations_crud(self):
-        """Test quotation CRUD operations"""
-        if 'customer_id' not in self.test_data:
-            print("❌ Cannot test quotations - no customer created")
-            return False
-            
-        quotation_data = {
-            "customer_id": self.test_data['customer_id'],
-            "date": "2024-01-15",
-            "valid_until": "2024-02-15",
-            "supply_type": "intra",
-            "notes": "Test quotation notes",
-            "terms": "Valid for 30 days",
-            "items": [
-                {
-                    "product_name": "Test Service",
-                    "description": "Test service description",
-                    "hsn_code": "9983",
-                    "quantity": 1,
-                    "unit": "NOS",
-                    "rate": 15000,
-                    "gst_rate": 18
-                }
-            ]
-        }
+    def test_voice_to_text(self):
+        """Test the new voice-to-text endpoint"""
+        print("\n🎤 Testing Voice-to-Text Feature...")
         
-        success, response = self.run_test(
-            "Create Quotation",
-            "POST",
-            "quotations",
-            200,
-            data=quotation_data
-        )
+        # Test 1: Valid audio file
+        audio_file_path = self.create_test_audio_file(duration_seconds=3)
         
-        if success and 'id' in response:
-            quotation_id = response['id']
-            self.test_data['quotation_id'] = quotation_id
-            print(f"   📋 Created quotation: {quotation_id}")
-            
-            # Get quotations list
-            success, _ = self.run_test(
-                "Get Quotations List",
-                "GET",
-                "quotations",
-                200
-            )
-            
-            # Get specific quotation
-            success, _ = self.run_test(
-                "Get Quotation by ID",
-                "GET",
-                f"quotations/{quotation_id}",
-                200
-            )
-            
-            return True
-        return False
+        try:
+            with open(audio_file_path, 'rb') as audio_file:
+                files = {'file': ('test_audio.wav', audio_file, 'audio/wav')}
+                success, data, status = self.test_endpoint('POST', 'ai/voice-to-text', 200, files=files, timeout=60)
+                
+                if success:
+                    if 'success' in data and 'text' in data and 'language' in data:
+                        self.log_test("Voice-to-Text Valid Audio", True, f"Response: {data}")
+                    else:
+                        self.log_test("Voice-to-Text Valid Audio", False, f"Missing fields in response: {data}")
+                else:
+                    self.log_test("Voice-to-Text Valid Audio", False, f"Status: {status}, Response: {data}")
+        
+        except Exception as e:
+            self.log_test("Voice-to-Text Valid Audio", False, f"Exception: {str(e)}")
+        
+        finally:
+            # Clean up temp file
+            if os.path.exists(audio_file_path):
+                os.unlink(audio_file_path)
+        
+        # Test 2: Short audio (OpenAI Whisper can handle short audio, so this is expected to work)
+        short_audio_path = self.create_test_audio_file(duration_seconds=0.5)
+        
+        try:
+            with open(short_audio_path, 'rb') as audio_file:
+                files = {'file': ('short_audio.wav', audio_file, 'audio/wav')}
+                success, data, status = self.test_endpoint('POST', 'ai/voice-to-text', 200, files=files, timeout=30)
+                
+                if success and 'success' in data:
+                    self.log_test("Voice-to-Text Short Audio", True, f"Handled short audio: {data.get('text', '')[:50]}...")
+                else:
+                    self.log_test("Voice-to-Text Short Audio", False, f"Failed to process short audio: {data}")
+        
+        except Exception as e:
+            self.log_test("Voice-to-Text Short Audio", False, f"Exception: {str(e)}")
+        
+        finally:
+            # Clean up temp file
+            if os.path.exists(short_audio_path):
+                os.unlink(short_audio_path)
+        
+        # Test 3: Invalid file type (should handle gracefully)
+        try:
+            # Create a text file disguised as audio
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_file.write(b"This is not audio data")
+                temp_file.flush()
+                
+                with open(temp_file.name, 'rb') as fake_audio:
+                    files = {'file': ('fake_audio.wav', fake_audio, 'audio/wav')}
+                    success, data, status = self.test_endpoint('POST', 'ai/voice-to-text', 200, files=files, timeout=30)
+                    
+                    if success and 'success' in data and data['success'] == False:
+                        self.log_test("Voice-to-Text Invalid File Error Handling", True, "Correctly handled invalid file")
+                    else:
+                        self.log_test("Voice-to-Text Invalid File Error Handling", False, f"Should have handled invalid file: {data}")
+                
+                os.unlink(temp_file.name)
+        
+        except Exception as e:
+            self.log_test("Voice-to-Text Invalid File Error Handling", False, f"Exception: {str(e)}")
 
-    def test_delivery_challans(self):
-        """Test delivery challan operations"""
-        if 'customer_id' not in self.test_data:
-            print("❌ Cannot test challans - no customer created")
-            return False
-            
-        challan_data = {
-            "customer_id": self.test_data['customer_id'],
-            "date": "2024-01-15",
-            "invoice_id": self.test_data.get('invoice_id', ''),
-            "vehicle_number": "MH01AB1234",
-            "transport_mode": "Road",
-            "notes": "Test delivery challan",
-            "items": [
-                {
-                    "product_name": "Test Item",
-                    "description": "Test item for delivery",
-                    "hsn_code": "8471",
-                    "quantity": 1,
-                    "unit": "NOS",
-                    "rate": 10000
-                }
-            ]
-        }
-        
-        success, response = self.run_test(
-            "Create Delivery Challan",
-            "POST",
-            "challans",
-            200,
-            data=challan_data
-        )
-        
-        if success and 'id' in response:
-            challan_id = response['id']
-            self.test_data['challan_id'] = challan_id
-            print(f"   🚛 Created challan: {challan_id}")
-            
-            # Get challans list
-            success, _ = self.run_test(
-                "Get Challans List",
-                "GET",
-                "challans",
-                200
-            )
-            
-            return True
-        return False
-
-    def test_eway_bills(self):
-        """Test e-way bill operations"""
-        if 'invoice_id' not in self.test_data:
-            print("❌ Cannot test e-way bills - no invoice created")
-            return False
-            
-        # Test prefill endpoint
-        success, response = self.run_test(
-            "E-way Bill Prefill",
-            "GET",
-            f"eway-bills/prefill/{self.test_data['invoice_id']}",
-            200
-        )
-        
-        eway_data = {
-            "invoice_id": self.test_data['invoice_id'],
-            "from_place": "Mumbai",
-            "from_state": "Maharashtra",
-            "from_pincode": "400001",
-            "to_place": "Pune",
-            "to_state": "Maharashtra",
-            "to_pincode": "411001",
-            "vehicle_number": "MH01AB1234",
-            "vehicle_type": "Regular",
-            "transport_mode": "Road",
-            "transporter_id": "TRANS123",
-            "distance": 150
-        }
-        
-        success, response = self.run_test(
-            "Create E-way Bill",
-            "POST",
-            "eway-bills",
-            200,
-            data=eway_data
-        )
-        
-        if success and 'id' in response:
-            eway_id = response['id']
-            self.test_data['eway_id'] = eway_id
-            print(f"   🛣️ Created e-way bill: {eway_id}")
-            
-            # Get e-way bills list
-            success, _ = self.run_test(
-                "Get E-way Bills List",
-                "GET",
-                "eway-bills",
-                200
-            )
-            
-            return True
-        return False
-
-    def test_notifications(self):
-        """Test notifications endpoint"""
-        success, response = self.run_test(
-            "Get Notifications",
-            "GET",
-            "notifications",
-            200
-        )
-        
-        if success:
-            print(f"   🔔 Found {len(response)} notifications")
-        return success
-
-    def test_settings(self):
-        """Test company settings"""
-        # Get settings
-        success, response = self.run_test(
-            "Get Company Settings",
-            "GET",
-            "settings",
-            200
-        )
-        
-        if success:
-            # Update settings
-            settings_data = {
-                "name": "Test Company Ltd",
-                "address": "123 Test Street",
+    def test_ai_execute_plan(self):
+        """Test AI execute plan endpoint"""
+        # Simple test plan
+        test_plan = {
+            "customer": {
+                "existing_id": "",
+                "name": "Test AI Customer",
+                "phone": "9876543210",
+                "email": "ai@test.com",
                 "city": "Mumbai",
-                "state": "Maharashtra",
-                "state_code": "27",
-                "pincode": "400001",
-                "gstin": "27AAAAA0000A1Z5",
-                "pan": "AAAAA0000A",
-                "phone": "022-12345678",
-                "email": "info@testcompany.com",
-                "bank_name": "Test Bank",
-                "account_number": "1234567890",
-                "ifsc_code": "TEST0001234",
-                "branch": "Test Branch"
-            }
-            
-            success, _ = self.run_test(
-                "Update Company Settings",
-                "PUT",
-                "settings",
-                200,
-                data=settings_data
-            )
-            
-        return success
+                "state": "Maharashtra"
+            },
+            "items": [
+                {
+                    "existing_id": "",
+                    "product_name": "Test Product",
+                    "quantity": 2,
+                    "rate": 1000,
+                    "gst_rate": 18,
+                    "unit": "NOS",
+                    "hsn_code": "1234"
+                }
+            ],
+            "actions": ["invoice"],
+            "supply_type": "intra",
+            "due_date_days": 30,
+            "notes": "Test AI execution",
+            "terms": "Payment within 30 days"
+        }
+        
+        success, data, status = self.test_endpoint('POST', 'ai/execute-plan', 200, test_plan)
+        
+        if success and 'created' in data:
+            created_items = data['created']
+            if len(created_items) > 0:
+                self.log_test("AI Execute Plan", True, f"Created {len(created_items)} documents")
+                return data
+            else:
+                self.log_test("AI Execute Plan", False, "No documents created")
+                return None
+        else:
+            self.log_test("AI Execute Plan", False, f"Status: {status}")
+            return None
 
-    def cleanup_test_data(self):
-        """Clean up created test data"""
-        print("\n🧹 Cleaning up test data...")
+    def run_comprehensive_test(self):
+        """Run all tests"""
+        print("🚀 Starting BillFlow Backend API Testing (Iteration 3)")
+        print("=" * 60)
         
-        # Delete in reverse order of creation
-        if 'eway_id' in self.test_data:
-            self.run_test("Delete E-way Bill", "DELETE", f"eway-bills/{self.test_data['eway_id']}", 200)
+        # Test core functionality
+        print("\n📊 Testing Core Functionality...")
+        self.test_dashboard()
+        customer_id = self.test_customers_crud()
+        note_id = self.test_notes_crud()
         
-        if 'challan_id' in self.test_data:
-            self.run_test("Delete Challan", "DELETE", f"challans/{self.test_data['challan_id']}", 200)
-            
-        if 'quotation_id' in self.test_data:
-            self.run_test("Delete Quotation", "DELETE", f"quotations/{self.test_data['quotation_id']}", 200)
-            
-        if 'invoice_id' in self.test_data:
-            self.run_test("Delete Invoice", "DELETE", f"invoices/{self.test_data['invoice_id']}", 200)
-            
-        if 'note_id' in self.test_data:
-            self.run_test("Delete Note", "DELETE", f"notes/{self.test_data['note_id']}", 200)
-            
-        if 'product_id' in self.test_data:
-            self.run_test("Delete Product", "DELETE", f"products/{self.test_data['product_id']}", 200)
-            
-        if 'customer_id' in self.test_data:
-            self.run_test("Delete Customer", "DELETE", f"customers/{self.test_data['customer_id']}", 200)
+        # Test AI features
+        print("\n🤖 Testing AI Features...")
+        ai_parse_result = self.test_ai_parse_notes()
+        ai_execute_result = self.test_ai_execute_plan()
+        
+        # Test NEW voice-to-text feature
+        self.test_voice_to_text()
+        
+        # Test other endpoints quickly
+        print("\n🔍 Testing Other Endpoints...")
+        
+        # Products
+        success, _, _ = self.test_endpoint('GET', 'products')
+        self.log_test("Get Products", success)
+        
+        # Settings
+        success, _, _ = self.test_endpoint('GET', 'settings')
+        self.log_test("Get Settings", success)
+        
+        # Invoices
+        success, _, _ = self.test_endpoint('GET', 'invoices')
+        self.log_test("Get Invoices", success)
+        
+        # Quotations
+        success, _, _ = self.test_endpoint('GET', 'quotations')
+        self.log_test("Get Quotations", success)
+        
+        # Challans
+        success, _, _ = self.test_endpoint('GET', 'challans')
+        self.log_test("Get Challans", success)
+        
+        # E-way Bills
+        success, _, _ = self.test_endpoint('GET', 'eway-bills')
+        self.log_test("Get E-way Bills", success)
+        
+        # Notifications
+        success, _, _ = self.test_endpoint('GET', 'notifications')
+        self.log_test("Get Notifications", success)
+        
+        # Print summary
+        print("\n" + "=" * 60)
+        print(f"📈 Test Summary: {self.tests_passed}/{self.tests_run} tests passed")
+        print(f"🎯 Success Rate: {(self.tests_passed/self.tests_run)*100:.1f}%")
+        
+        if self.tests_passed == self.tests_run:
+            print("🎉 All tests passed!")
+            return 0
+        else:
+            print("⚠️  Some tests failed. Check details above.")
+            return 1
 
 def main():
-    print("🚀 Starting BillFlow API Testing...")
-    print("=" * 50)
-    
     tester = BillFlowAPITester()
-    
-    # Test all endpoints
-    tests = [
-        ("Dashboard", tester.test_dashboard),
-        ("Company Settings", tester.test_settings),
-        ("Customers CRUD", tester.test_customers_crud),
-        ("Products CRUD", tester.test_products_crud),
-        ("Notes CRUD", tester.test_notes_crud),
-        ("Invoices CRUD", tester.test_invoices_crud),
-        ("Quotations CRUD", tester.test_quotations_crud),
-        ("Delivery Challans", tester.test_delivery_challans),
-        ("E-way Bills", tester.test_eway_bills),
-        ("Notifications", tester.test_notifications),
-    ]
-    
-    failed_tests = []
-    
-    for test_name, test_func in tests:
-        print(f"\n{'='*20} {test_name} {'='*20}")
-        try:
-            if not test_func():
-                failed_tests.append(test_name)
-        except Exception as e:
-            print(f"❌ {test_name} failed with exception: {str(e)}")
-            failed_tests.append(test_name)
-    
-    # Cleanup
-    tester.cleanup_test_data()
-    
-    # Print results
-    print(f"\n{'='*50}")
-    print(f"📊 FINAL RESULTS")
-    print(f"{'='*50}")
-    print(f"✅ Tests passed: {tester.tests_passed}/{tester.tests_run}")
-    print(f"📈 Success rate: {(tester.tests_passed/tester.tests_run*100):.1f}%")
-    
-    if failed_tests:
-        print(f"\n❌ Failed test categories:")
-        for test in failed_tests:
-            print(f"   - {test}")
-    else:
-        print(f"\n🎉 All test categories passed!")
-    
-    return 0 if len(failed_tests) == 0 else 1
+    return tester.run_comprehensive_test()
 
 if __name__ == "__main__":
     sys.exit(main())

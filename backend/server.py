@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import json
 import re
+import tempfile
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -600,6 +601,46 @@ Rules:
     await mock_whatsapp("ai_processed", "note", note_doc["id"], f"AI analyzed: {parsed.get('summary', 'Notes processed')}")
 
     return {"note_id": note_doc["id"], "parsed": parsed}
+
+
+@api_router.post("/ai/voice-to-text")
+async def voice_to_text(file: UploadFile = File(...)):
+    from emergentintegrations.llm.openai import OpenAISpeechToText
+
+    contents = await file.read()
+    if len(contents) < 100:
+        return {"text": "", "error": "Audio too short", "success": False}
+
+    ext = ".webm"
+    ct = file.content_type or ""
+    if "wav" in ct:
+        ext = ".wav"
+    elif "mp3" in ct or "mpeg" in ct:
+        ext = ".mp3"
+    elif "mp4" in ct or "m4a" in ct:
+        ext = ".m4a"
+
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    tmp.write(contents)
+    tmp.close()
+
+    try:
+        stt = OpenAISpeechToText(api_key=os.environ.get('EMERGENT_LLM_KEY'))
+        with open(tmp.name, "rb") as af:
+            response = await stt.transcribe(
+                file=af,
+                model="whisper-1",
+                response_format="verbose_json",
+                prompt="Business billing context: invoices, quotations, delivery challans, e-way bills, customers, products, GST. Speaker may use Hindi, Marathi, or English interchangeably.",
+                temperature=0.0
+            )
+        detected_lang = getattr(response, 'language', 'unknown')
+        return {"text": response.text, "language": detected_lang, "success": True}
+    except Exception as e:
+        logger.error(f"Voice transcription failed: {e}")
+        return {"text": "", "error": str(e), "success": False}
+    finally:
+        os.unlink(tmp.name)
 
 
 @api_router.post("/ai/execute-plan")

@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sparkles, Upload, Trash2, FileText, Camera, Loader2,
   CheckCircle2, Receipt, FileCheck, Truck, Route, User, Package,
-  ArrowRight, Zap, MessageCircle, AlertCircle, RotateCcw
+  ArrowRight, Zap, MessageCircle, AlertCircle, RotateCcw, Mic, MicOff, Languages
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate, formatCurrency } from "@/utils/helpers";
@@ -34,7 +34,13 @@ export default function Notes() {
   const [aiPlan, setAiPlan] = useState(null);
   const [results, setResults] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [detectedLang, setDetectedLang] = useState("");
   const fileRef = useRef(null);
+  const recorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
 
   const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => {});
   useEffect(() => { fetchNotes(); }, []);
@@ -114,6 +120,68 @@ export default function Notes() {
     } catch { toast.error("Failed to save"); }
   };
 
+  // Voice Recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
+      });
+      streamRef.current = stream;
+      chunksRef.current = [];
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        if (blob.size < 100) { toast.error("Recording too short"); return; }
+        await transcribeAudio(blob, mimeType.includes('mp4') ? 'recording.m4a' : 'recording.webm');
+      };
+      recorder.start(250);
+      recorderRef.current = recorder;
+      setIsRecording(true);
+      setDetectedLang("");
+      toast.info("Listening... Speak in Hindi, Marathi, or English");
+    } catch (err) {
+      toast.error("Microphone access denied. Please allow mic permission.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  const transcribeAudio = async (blob, filename) => {
+    setTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, filename);
+      const res = await axios.post(`${API}/ai/voice-to-text`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }, timeout: 60000
+      });
+      if (res.data.success && res.data.text) {
+        const newContent = content ? content + "\n" + res.data.text : res.data.text;
+        setContent(newContent);
+        setDetectedLang(res.data.language || "");
+        const langNames = { hi: "Hindi", mr: "Marathi", en: "English", gu: "Gujarati", ta: "Tamil", te: "Telugu", kn: "Kannada", ml: "Malayalam", pa: "Punjabi", bn: "Bengali", ur: "Urdu" };
+        const langName = langNames[res.data.language] || res.data.language || "Auto";
+        toast.success(`Voice transcribed (${langName}). Click "AI Process" to continue.`);
+      } else {
+        toast.error(res.data.error || "Transcription failed. Try speaking louder or closer.");
+      }
+    } catch { toast.error("Voice transcription failed. Please try again."); }
+    finally { setTranscribing(false); }
+  };
+
+  const handleMicToggle = () => { isRecording ? stopRecording() : startRecording(); };
+
   // Toggle action
   const toggleAction = (action) => {
     if (!aiPlan) return;
@@ -167,13 +235,59 @@ export default function Notes() {
           <CardContent className="space-y-4">
             <Textarea
               data-testid="ai-notes-textarea"
-              placeholder={"Example: Sharma ji called, needs 50 laptops at Rs.45,000 each.\nDeliver to Pune office, vehicle MH12AB1234.\nAlso send quotation for 100 monitors at Rs.12,000.\n\nJust type rough notes - AI will handle the rest!"}
+              placeholder={"Example: Sharma ji called, needs 50 laptops at Rs.45,000 each.\nDeliver to Pune office, vehicle MH12AB1234.\n\nType, paste, or use the mic to speak in Hindi/Marathi/English!"}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="min-h-[200px] bg-[#F9F8F6] border-[#E5E0DA] focus:ring-2 focus:ring-[#E07A5F] focus:border-[#E07A5F] resize-none text-sm"
-              disabled={step === "processing" || step === "executing"}
+              className="min-h-[180px] bg-[#F9F8F6] border-[#E5E0DA] focus:ring-2 focus:ring-[#E07A5F] focus:border-[#E07A5F] resize-none text-sm"
+              disabled={step === "processing" || step === "executing" || transcribing}
             />
+
+            {/* Recording Indicator */}
+            {isRecording && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-200 animate-row">
+                <div className="flex items-center gap-1">
+                  {[0, 1, 2, 3, 4].map(i => (
+                    <span key={i} className="wave-bar" style={{ animationDelay: `${i * 0.12}s`, height: '4px' }} />
+                  ))}
+                </div>
+                <span className="text-sm font-medium text-red-600">Listening... Speak now</span>
+                <Badge className="bg-red-100 text-red-600 text-[10px] border-0 ml-auto">
+                  <Languages className="w-3 h-3 mr-1" /> Hindi / Marathi / English
+                </Badge>
+              </div>
+            )}
+            {transcribing && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-[#E07A5F]/10 border border-[#E07A5F]/20">
+                <Loader2 className="w-4 h-4 text-[#E07A5F] animate-spin" />
+                <span className="text-sm font-medium text-[#E07A5F]">Transcribing audio...</span>
+              </div>
+            )}
+            {detectedLang && !isRecording && !transcribing && content && (
+              <div className="flex items-center gap-2">
+                <Languages className="w-3.5 h-3.5 text-[#81B29A]" />
+                <span className="text-[10px] text-[#81B29A] font-medium">
+                  Detected: {({hi:"Hindi",mr:"Marathi",en:"English",gu:"Gujarati",ta:"Tamil"})[detectedLang] || detectedLang}
+                </span>
+              </div>
+            )}
+
             <div className="flex gap-2 flex-wrap">
+              {/* Mic Button */}
+              <Button
+                data-testid="mic-button"
+                onClick={handleMicToggle}
+                disabled={step === "processing" || step === "executing" || transcribing}
+                className={`${isRecording
+                  ? "bg-red-500 hover:bg-red-600 text-white recording-pulse"
+                  : "bg-[#2D3142] hover:bg-[#4F5D75] text-white"
+                } transition-all duration-300`}
+              >
+                {isRecording ? (
+                  <><MicOff className="w-4 h-4 mr-2" /> Stop</>
+                ) : (
+                  <><Mic className="w-4 h-4 mr-2" /> Voice</>
+                )}
+              </Button>
               <Button
                 data-testid="ai-process-button"
                 onClick={handleAIProcess}
