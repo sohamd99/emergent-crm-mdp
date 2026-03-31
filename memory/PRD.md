@@ -42,6 +42,11 @@ Create an app where the boss talks on call and the assistant feeds notes into th
   - One-click creation of Invoice + Quotation + Challan + E-Way Bill
   - Editable AI plan before execution
   - WhatsApp notifications at every step
+- [x] **Voice Commands** (OpenAI Whisper whisper-1)
+  - Mic button with recording animation and visual feedback
+  - Auto language detection: Hindi, Marathi, English (and 50+ more)
+  - Browser MediaRecorder → Whisper transcription → textarea
+  - Detected language badge shown after transcription
 - [x] 100% backend, frontend, and AI integration tests passing
 
 ## Prioritized Backlog
