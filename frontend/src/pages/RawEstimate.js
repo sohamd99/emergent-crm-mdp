@@ -86,22 +86,12 @@ export default function RawEstimate({ data, onClose }) {
               <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>To</td>
               <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{customer?.name||""}{customer?.city?`, ${customer.city}`:""}</td>
             </tr>
-            {/* Row 3: Subject */}
-            <tr>
-              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>Subject</td>
-              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{subject||""}</td>
-            </tr>
-            {/* Row 4: PAX */}
-            <tr>
-              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>PAX</td>
-              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{pax||""}</td>
-            </tr>
-            {/* Row 5: Empty */}
+            {/* Row 3: Empty */}
             <tr><td style={{height:"10px",border:"none"}} colSpan={4}></td></tr>
             {/* Row 6: Table Header */}
             <tr>
               <td style={{borderTop:bm,borderBottom:bm,borderLeft:bm,borderRight:bt,fontWeight:700,textAlign:"center",padding:"5px 6px",fontSize:"10pt"}}>Sr</td>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,fontWeight:700,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>Description</td>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,fontWeight:700,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>Particulars</td>
               <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,padding:"5px 6px",fontSize:"10pt"}}></td>
               <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bm,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt"}}>Amount (Rs.)</td>
             </tr>
