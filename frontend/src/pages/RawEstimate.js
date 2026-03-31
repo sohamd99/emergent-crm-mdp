@@ -20,7 +20,7 @@ const NOTES_SET = [
 function hash(s) { let h=0; for(let i=0;i<s.length;i++) h=((h<<5)-h+s.charCodeAt(i))|0; return Math.abs(h); }
 
 export default function RawEstimate({ data, onClose }) {
-  const { customer, items, total, estimate_number, date, pax, subject } = data;
+  const { customer, items, total, estimate_number, date } = data;
   const h = hash(estimate_number || "x");
   const dateFn = DATE_FMTS[h % DATE_FMTS.length];
   const totalLabel = TOTAL_LABELS[h % TOTAL_LABELS.length];
@@ -28,32 +28,34 @@ export default function RawEstimate({ data, onClose }) {
   const fDate = date ? dateFn(date) : "";
   const fTotal = total || (items||[]).reduce((s,it)=>s+(it.taxable_amount||(it.quantity||1)*(it.rate||0)),0);
 
-  // Exact border helpers
-  const bm = "1.5px solid #000"; // medium
-  const bt = "1px solid #000";   // thin
+  const bdr = "1px solid #D4D4D4";
+  const rh = { border: bdr, background: "#F6F6F6", padding: "0 4px", textAlign: "center", fontSize: "11px", color: "#555", width: "32px", minWidth: "32px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
+  const colH = { border: bdr, background: "#F6F6F6", padding: "0", textAlign: "center", fontSize: "11px", color: "#555", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
+  const dc = { border: bdr, background: "#fff", padding: "2px 6px", fontSize: "11px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle", color: "#000" };
+  const dcR = { ...dc, textAlign: "right" };
+  const dcB = { ...dc, fontWeight: 700 };
+  const dcBR = { ...dcR, fontWeight: 700 };
+  const empty = { ...dc, color: "#fff" };
 
-  const printCSS = `
-    body{margin:20px 30px;font-family:Arial,sans-serif;font-size:10pt;color:#000}
-    table{border-collapse:collapse;width:100%}
-    .bm{border:1.5px solid #000}.bt{border:1px solid #000}
-    .bl-m{border-left:1.5px solid #000}.br-m{border-right:1.5px solid #000}
-    .bt-m{border-top:1.5px solid #000}.bb-m{border-bottom:1.5px solid #000}
-    .bl-t{border-left:1px solid #000}.br-t{border-right:1px solid #000}
-    .bt-t{border-top:1px solid #000}.bb-t{border-bottom:1px solid #000}
-    .b{font-weight:700}.r{text-align:right}.c{text-align:center}.l{text-align:left}
-    td{padding:4px 6px;font-size:10pt;vertical-align:middle}
-    .note{font-size:9pt;color:#333;padding:3px 6px}
-    @media print{@page{margin:10mm}body{margin:0}}
-  `;
+  const itemsList = items || [];
+  let rn = 0;
+  const R = () => { rn++; return rn; };
 
   const handlePrint = () => {
     const pw = window.open("", "_blank");
-    pw.document.write(`<html><head><title>${estimate_number||"Estimate"}</title><style>${printCSS}</style></head><body>${document.getElementById("excel-est")?.innerHTML||""}</body></html>`);
+    pw.document.write(`<html><head><title>${estimate_number||"Estimate"}</title><style>
+      body{margin:0;padding:0;font-family:Calibri,sans-serif;font-size:11px;color:#000}
+      table{border-collapse:collapse;width:100%}
+      td{border:1px solid #D4D4D4;height:21px;padding:2px 6px;vertical-align:middle}
+      .rh{background:#F6F6F6;text-align:center;color:#555;width:32px;padding:0 4px}
+      .ch{background:#F6F6F6;text-align:center;color:#555}
+      .r{text-align:right}.b{font-weight:700}
+      .n{font-size:10px;color:#888;font-style:italic;border:none}
+      @media print{@page{margin:6mm}body{margin:0}}
+    </style></head><body>${document.getElementById("excel-est")?.innerHTML||""}</body></html>`);
     pw.document.close();
     pw.print();
   };
-
-  const itemsList = items || [];
 
   return (
     <div className="p-6">
@@ -68,58 +70,92 @@ export default function RawEstimate({ data, onClose }) {
       </div>
 
       <div id="excel-est" style={{background:"#fff"}}>
-        <table style={{borderCollapse:"collapse",fontFamily:"Arial, sans-serif",fontSize:"10pt",color:"#000",width:"100%"}}>
-          <colgroup>
-            <col style={{width:"40px"}} />
-            <col style={{width:"260px"}} />
-            <col style={{width:"160px"}} />
-            <col style={{width:"150px"}} />
-          </colgroup>
+        <table style={{borderCollapse:"collapse",width:"100%",fontFamily:"Calibri, sans-serif",fontSize:"11px",color:"#000"}}>
+          {/* Column headers row */}
+          <thead>
+            <tr>
+              <td style={{...colH, width:"32px"}}></td>
+              <td style={{...colH, width:"70px"}}>A</td>
+              <td style={{...colH}}>B</td>
+              <td style={{...colH, width:"50px"}}>C</td>
+              <td style={{...colH, width:"130px"}}>D</td>
+            </tr>
+          </thead>
           <tbody>
-            {/* Row 1: Date */}
+            {/* Row: Date */}
             <tr>
-              <td style={{borderTop:bm,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>Date</td>
-              <td colSpan={3} style={{borderTop:bm,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{fDate}</td>
+              <td style={rh}>{R()}</td>
+              <td style={dcB}>Date</td>
+              <td style={dc}>{fDate}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
             </tr>
-            {/* Row 2: To */}
+            {/* Row: To */}
             <tr>
-              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>To</td>
-              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{customer?.name||""}{customer?.city?`, ${customer.city}`:""}</td>
+              <td style={rh}>{R()}</td>
+              <td style={dcB}>To</td>
+              <td style={dc}>{customer?.name||""}{customer?.city?`, ${customer.city}`:""}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
             </tr>
-            {/* Row 3: Empty */}
-            <tr><td style={{height:"10px",border:"none"}} colSpan={4}></td></tr>
-            {/* Row 6: Table Header */}
+            {/* Blank separator */}
             <tr>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bm,borderRight:bt,fontWeight:700,textAlign:"center",padding:"5px 6px",fontSize:"10pt"}}>Sr</td>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,fontWeight:700,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>Particulars</td>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,padding:"5px 6px",fontSize:"10pt"}}></td>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bm,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt"}}>Amount (Rs.)</td>
+              <td style={rh}>{R()}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
             </tr>
-            {/* Item Rows */}
-            {itemsList.map((it, i) => {
-              const isLast = i === itemsList.length - 1;
-              const bbStyle = isLast ? bm : bt;
-              return (
-                <tr key={i}>
-                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bm,borderRight:bt,textAlign:"center",padding:"5px 6px",fontSize:"10pt"}}>{i+1}</td>
-                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bt,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>{it.product_name}{it.description?` - ${it.description}`:""}</td>
-                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bt,padding:"5px 6px",fontSize:"10pt"}}></td>
-                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bm,textAlign:"right",padding:"5px 6px",fontSize:"10pt",fontFamily:"Arial, sans-serif"}}>{formatCurrency(it.taxable_amount||(it.quantity||1)*(it.rate||0))}</td>
-                </tr>
-              );
-            })}
-            {/* TOTAL Row (A:C merged) */}
+            {/* Table header */}
             <tr>
-              <td colSpan={3} style={{borderTop:bt,borderBottom:bm,borderLeft:bm,borderRight:bt,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt"}}>{totalLabel}</td>
-              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bm,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt",fontFamily:"Arial, sans-serif"}}>{formatCurrency(fTotal)}</td>
+              <td style={rh}>{R()}</td>
+              <td style={dcB}>Sr</td>
+              <td style={dcB}>Particulars</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={dcBR}>Amount (Rs.)</td>
             </tr>
-            {/* Empty row */}
-            <tr><td style={{height:"10px",border:"none"}} colSpan={4}></td></tr>
+            {/* Items */}
+            {itemsList.map((it, i) => (
+              <tr key={i}>
+                <td style={rh}>{R()}</td>
+                <td style={{...dc, textAlign:"center"}}>{i+1}</td>
+                <td style={dc}>{it.product_name}{it.description?` - ${it.description}`:""}</td>
+                <td style={empty}>&nbsp;</td>
+                <td style={dcR}>{formatCurrency(it.taxable_amount||(it.quantity||1)*(it.rate||0))}</td>
+              </tr>
+            ))}
+            {/* Total */}
+            <tr>
+              <td style={rh}>{R()}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={dcBR}>{totalLabel}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={dcBR}>{formatCurrency(fTotal)}</td>
+            </tr>
+            {/* Blank */}
+            <tr>
+              <td style={rh}>{R()}</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
+              <td style={empty}>&nbsp;</td>
+            </tr>
             {/* Notes */}
             {notes.map((n, i) => (
               <tr key={`n-${i}`}>
-                <td style={{border:"none"}}></td>
-                <td colSpan={3} style={{border:"none",fontSize:"9pt",color:"#333",padding:"2px 6px"}}>{n}</td>
+                <td style={rh}>{R()}</td>
+                <td style={empty}>&nbsp;</td>
+                <td style={{...dc, fontSize:"10px", color:"#888", fontStyle:"italic"}} colSpan={3}>{n}</td>
+              </tr>
+            ))}
+            {/* Trailing empties */}
+            {[0,1,2,3].map(i => (
+              <tr key={`t-${i}`}>
+                <td style={{...rh, color:"#ccc"}}>{R()}</td>
+                <td style={empty}>&nbsp;</td>
+                <td style={empty}>&nbsp;</td>
+                <td style={empty}>&nbsp;</td>
+                <td style={empty}>&nbsp;</td>
               </tr>
             ))}
           </tbody>
