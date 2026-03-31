@@ -75,6 +75,8 @@ class QuotationCreate(BaseModel):
     supply_type: str = "intra"
     notes: str = ""
     terms: str = ""
+    pax: int = 0
+    subject: str = ""
 
 class ChallanCreate(BaseModel):
     customer_id: str
@@ -385,6 +387,7 @@ async def create_quotation(data: QuotationCreate):
         "customer_id": data.customer_id, "date": data.date, "valid_until": data.valid_until,
         "supply_type": data.supply_type, **totals,
         "status": "draft", "notes": data.notes, "terms": data.terms,
+        "pax": data.pax, "subject": data.subject,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.quotations.insert_one(doc)
@@ -397,7 +400,8 @@ async def create_quotation(data: QuotationCreate):
 async def update_quotation(qid: str, data: QuotationCreate):
     totals = calc_totals(data.items, data.supply_type)
     upd = {"customer_id": data.customer_id, "date": data.date, "valid_until": data.valid_until,
-           "supply_type": data.supply_type, **totals, "notes": data.notes, "terms": data.terms}
+           "supply_type": data.supply_type, **totals, "notes": data.notes, "terms": data.terms,
+           "pax": data.pax, "subject": data.subject}
     await db.quotations.update_one({"id": qid}, {"$set": upd})
     return await db.quotations.find_one({"id": qid}, {"_id": 0})
 
@@ -562,6 +566,8 @@ Return this exact JSON structure:
   "actions": ["invoice"],
   "supply_type": "intra",
   "due_date_days": 30,
+  "pax": 0,
+  "subject": "",
   "notes": "",
   "terms": "",
   "summary": "Brief summary of what was understood"
@@ -577,7 +583,13 @@ Rules:
 - If nothing specific mentioned, default to ["invoice"]
 - If customer state differs from company state -> "inter", else "intra"
 - Default GST 18% unless specified. Extract ALL items with quantities and rates.
-- For matched products, use their existing rate/HSN/GST if not explicitly overridden in notes."""
+- For matched products, use their existing rate/HSN/GST if not explicitly overridden in notes.
+
+QUOTATION FORMAT (MDP Style):
+- When "quotation" is in actions, extract "subject" (event/service name) and "pax" (number of attendees/people)
+- For quotations, items should be structured as: "Event Cost" (main amount), "Service Charges", and optionally "Miscellaneous"
+- If user mentions miscellaneous costs, include a "Miscellaneous" item. Otherwise skip it.
+- Service Charges are typically 7% of event cost unless explicitly stated"""
 
     try:
         chat = LlmChat(
@@ -702,12 +714,15 @@ async def execute_ai_plan(plan: dict = Body(...)):
         results["created"].append({"type": "invoice", "number": num, "id": invoice_id, "total": totals["total"]})
         await mock_whatsapp("ai_invoice", "invoice", invoice_id, f"AI created Invoice {num} - Rs.{totals['total']}")
 
-    # 4. Create Quotation
+    # 4. Create Quotation (MDP Format)
     if "quotation" in actions:
         num = await get_next_number("quotation", "QT")
         valid_until = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
+        pax = int(plan.get("pax", 0))
+        subject = plan.get("subject", plan.get("notes",""))
         qt = {"id": str(uuid.uuid4()), "quote_number": num, "customer_id": customer_id, "date": today, "valid_until": valid_until,
-              "supply_type": supply_type, **totals, "status": "draft", "notes": plan.get("notes",""), "terms": plan.get("terms",""), "created_at": datetime.now(timezone.utc).isoformat()}
+              "supply_type": supply_type, **totals, "status": "draft", "notes": plan.get("notes",""), "terms": plan.get("terms",""),
+              "pax": pax, "subject": subject, "created_at": datetime.now(timezone.utc).isoformat()}
         await db.quotations.insert_one(qt)
         results["created"].append({"type": "quotation", "number": num, "id": qt["id"], "total": totals["total"]})
         await mock_whatsapp("ai_quotation", "quotation", qt["id"], f"AI created Quotation {num} - Rs.{totals['total']}")

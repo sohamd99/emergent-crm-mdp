@@ -472,6 +472,26 @@ export default function Notes() {
                         Inter-State
                       </Button>
                     </div>
+
+                    {/* PAX & Subject (for Quotations) */}
+                    {(aiPlan.actions || []).includes("quotation") && (
+                      <div className="p-3 rounded-lg bg-white border border-[#E5E0DA]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <FileCheck className="w-4 h-4 text-[#81B29A]" strokeWidth={1.5} />
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#81B29A]">MDP Quotation Details</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-[10px] text-[#4F5D75]">Subject (Event)</span>
+                            <Input value={aiPlan.subject || ""} onChange={e => setAiPlan({ ...aiPlan, subject: e.target.value })} className="h-7 text-xs bg-[#F9F8F6] border-[#E5E0DA]" placeholder="e.g., MP Meet" data-testid="plan-subject" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-[#4F5D75]">PAX (People)</span>
+                            <Input type="number" value={aiPlan.pax || 0} onChange={e => setAiPlan({ ...aiPlan, pax: parseInt(e.target.value) || 0 })} className="h-7 text-xs bg-[#F9F8F6] border-[#E5E0DA]" data-testid="plan-pax" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
 

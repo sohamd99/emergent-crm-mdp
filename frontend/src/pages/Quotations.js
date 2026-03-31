@@ -14,6 +14,7 @@ import { Plus, Trash2, FileCheck, Eye, Package } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDate, getStatusColor } from "@/utils/helpers";
 import InvoicePreview from "@/pages/InvoicePreview";
+import MDPQuotation from "@/pages/MDPQuotation";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const emptyItem = { product_name: "", description: "", hsn_code: "", quantity: 1, unit: "NOS", rate: 0, gst_rate: 18 };
@@ -26,7 +27,7 @@ export default function Quotations() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ customer_id: "", date: new Date().toISOString().split("T")[0], valid_until: "", supply_type: "intra", notes: "", terms: "", items: [{ ...emptyItem }] });
+  const [form, setForm] = useState({ customer_id: "", date: new Date().toISOString().split("T")[0], valid_until: "", supply_type: "intra", notes: "", terms: "", pax: 0, subject: "", items: [{ ...emptyItem }] });
 
   const fetchAll = () => {
     axios.get(`${API}/quotations`).then(r => setQuotations(r.data)).catch(() => {});
@@ -43,7 +44,7 @@ export default function Quotations() {
   const handleSave = async () => {
     if (!form.customer_id) return toast.error("Select a customer");
     try {
-      const payload = { ...form, items: form.items.map(it => ({ ...it, quantity: parseFloat(it.quantity) || 0, rate: parseFloat(it.rate) || 0, gst_rate: parseFloat(it.gst_rate) || 18 })) };
+      const payload = { ...form, items: form.items.map(it => ({ ...it, quantity: parseFloat(it.quantity) || 0, rate: parseFloat(it.rate) || 0, gst_rate: parseFloat(it.gst_rate) || 0 })), pax: parseInt(form.pax) || 0 };
       if (editing) { await axios.put(`${API}/quotations/${editing.id}`, payload); toast.success("Updated"); }
       else { await axios.post(`${API}/quotations`, payload); toast("WhatsApp Alert", { description: "Quotation created", className: "whatsapp-toast" }); }
       setShowForm(false); setEditing(null); fetchAll();
@@ -53,7 +54,7 @@ export default function Quotations() {
   const handlePreview = async (q) => { try { const r = await axios.get(`${API}/quotations/${q.id}`); setPreviewData(r.data); setShowPreview(true); } catch { toast.error("Failed"); } };
   const handleStatusChange = async (id, status) => { try { await axios.patch(`${API}/quotations/${id}/status?status=${status}`); toast("WhatsApp Alert", { description: `Quotation status: ${status}`, className: "whatsapp-toast" }); fetchAll(); } catch { toast.error("Failed"); } };
   const handleDelete = async (id) => { try { await axios.delete(`${API}/quotations/${id}`); toast.success("Deleted"); fetchAll(); } catch { toast.error("Failed"); } };
-  const handleEdit = (q) => { setEditing(q); setForm({ customer_id: q.customer_id || "", date: q.date || "", valid_until: q.valid_until || "", supply_type: q.supply_type || "intra", notes: q.notes || "", terms: q.terms || "", items: (q.items || []).map(it => ({ product_name: it.product_name || "", description: it.description || "", hsn_code: it.hsn_code || "", quantity: it.quantity || 1, unit: it.unit || "NOS", rate: it.rate || 0, gst_rate: it.gst_rate || 18 })) }); setShowForm(true); };
+  const handleEdit = (q) => { setEditing(q); setForm({ customer_id: q.customer_id || "", date: q.date || "", valid_until: q.valid_until || "", supply_type: q.supply_type || "intra", notes: q.notes || "", terms: q.terms || "", pax: q.pax || 0, subject: q.subject || "", items: (q.items || []).map(it => ({ product_name: it.product_name || "", description: it.description || "", hsn_code: it.hsn_code || "", quantity: it.quantity || 1, unit: it.unit || "NOS", rate: it.rate || 0, gst_rate: it.gst_rate || 18 })) }); setShowForm(true); };
   const getCustomerName = (id) => customers.find(c => c.id === id)?.name || "-";
 
   return (
@@ -63,7 +64,7 @@ export default function Quotations() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2D3142]" style={{ fontFamily: 'Manrope, sans-serif' }}>Quotations</h1>
           <p className="text-sm text-[#4F5D75] mt-1">Create and manage price quotations</p>
         </div>
-        <Button data-testid="create-quotation-button" onClick={() => { setEditing(null); setForm({ customer_id: "", date: new Date().toISOString().split("T")[0], valid_until: "", supply_type: "intra", notes: "", terms: "", items: [{ ...emptyItem }] }); setShowForm(true); }} className="bg-[#E07A5F] hover:bg-[#C96D55] text-white">
+        <Button data-testid="create-quotation-button" onClick={() => { setEditing(null); setForm({ customer_id: "", date: new Date().toISOString().split("T")[0], valid_until: "", supply_type: "intra", notes: "", terms: "", pax: 0, subject: "", items: [{ product_name: "Event Cost", description: "", hsn_code: "", quantity: 1, unit: "NOS", rate: 0, gst_rate: 0 }, { product_name: "Service Charges", description: "", hsn_code: "", quantity: 1, unit: "NOS", rate: 0, gst_rate: 0 }] }); setShowForm(true); }} className="bg-[#E07A5F] hover:bg-[#C96D55] text-white">
           <Plus className="w-4 h-4 mr-2" /> New Quotation
         </Button>
       </div>
@@ -117,6 +118,10 @@ export default function Quotations() {
                 <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
                 <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Valid Until</Label><Input type="date" value={form.valid_until} onChange={e => setForm({ ...form, valid_until: e.target.value })} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Subject (Event Name) *</Label><Input data-testid="quotation-subject-input" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="e.g., MP Meet" className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
+                <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">PAX (No. of People)</Label><Input data-testid="quotation-pax-input" type="number" value={form.pax} onChange={e => setForm({ ...form, pax: e.target.value })} placeholder="25" className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
+              </div>
               <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Supply Type</Label>
                 <div className="flex gap-3 mt-2">
                   <Button type="button" variant={form.supply_type === "intra" ? "default" : "outline"} className={form.supply_type === "intra" ? "bg-[#81B29A] hover:bg-[#6fa388] text-white" : "border-[#E5E0DA] text-[#4F5D75]"} onClick={() => setForm({ ...form, supply_type: "intra" })}>Intra-State</Button>
@@ -156,7 +161,7 @@ export default function Quotations() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showPreview} onOpenChange={setShowPreview}><DialogContent className="max-w-4xl max-h-[95vh] p-0"><ScrollArea className="max-h-[90vh]">{previewData && <InvoicePreview data={previewData} docType="QUOTATION" onClose={() => setShowPreview(false)} />}</ScrollArea></DialogContent></Dialog>
+      <Dialog open={showPreview} onOpenChange={setShowPreview}><DialogContent className="max-w-4xl max-h-[95vh] p-0"><ScrollArea className="max-h-[90vh]">{previewData && <MDPQuotation data={previewData} onClose={() => setShowPreview(false)} />}</ScrollArea></DialogContent></Dialog>
     </div>
   );
 }
