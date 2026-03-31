@@ -3,25 +3,18 @@ import { Printer } from "lucide-react";
 import { formatCurrency } from "@/utils/helpers";
 
 const DATE_FMTS = [
+  (d) => { const p = d.split("-"); return `${p[2]}.${p[1]}.${p[0]}`; },
   (d) => { const p = d.split("-"); return `${p[2]}/${p[1]}/${p[0]}`; },
   (d) => { const p = d.split("-"); return `${p[2]}-${p[1]}-${p[0]}`; },
   (d) => { const dt = new Date(d); const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${dt.getDate()} ${m[dt.getMonth()]} ${dt.getFullYear()}`; },
-  (d) => { const p = d.split("-"); return `${p[2]}.${p[1]}.${p[0]}`; },
 ];
-const TOTAL_LABELS = ["Total", "Grand Total", "Net Total", "TOTAL", "Sum"];
-const NUM_STYLES = [
-  (i) => String(i + 1),
-  (i) => String(i + 1).padStart(2, "0"),
-  (i) => String.fromCharCode(97 + i),
-  (i) => ["i","ii","iii","iv","v","vi","vii","viii","ix","x"][i] || String(i+1),
-  (i) => `${i+1})`,
-];
-const NOTES = [
-  ["Taxes extra as applicable","Subject to final confirmation"],
-  ["GST additional","Rates may vary"],
-  ["Plus applicable taxes","Approximate figures"],
-  ["Tax not included","Valid for 7 days"],
-  ["Exclusive of GST","Subject to change"],
+const TOTAL_LABELS = ["TOTAL", "Total", "Grand Total", "NET TOTAL", "Sum Total"];
+const NOTES_SET = [
+  ["* Taxes extra as applicable", "* Subject to final confirmation"],
+  ["* GST additional as applicable", "* Rates may vary"],
+  ["* Plus applicable taxes", "* Approximate figures"],
+  ["* Tax not included above", "* Valid for 7 days"],
+  ["* Exclusive of GST", "* Subject to change"],
 ];
 
 function hash(s) { let h=0; for(let i=0;i<s.length;i++) h=((h<<5)-h+s.charCodeAt(i))|0; return Math.abs(h); }
@@ -31,56 +24,36 @@ export default function RawEstimate({ data, onClose }) {
   const h = hash(estimate_number || "x");
   const dateFn = DATE_FMTS[h % DATE_FMTS.length];
   const totalLabel = TOTAL_LABELS[h % TOTAL_LABELS.length];
-  const numFn = NUM_STYLES[h % NUM_STYLES.length];
-  const noteSet = NOTES[h % NOTES.length];
+  const notes = NOTES_SET[h % NOTES_SET.length];
   const fDate = date ? dateFn(date) : "";
   const fTotal = total || (items||[]).reduce((s,it)=>s+(it.taxable_amount||(it.quantity||1)*(it.rate||0)),0);
 
-  // Excel exact styles
-  const bdr = "1px solid #D4D4D4";
-  const rh = { borderRight: bdr, borderBottom: bdr, background: "#F6F6F6", padding: "0 4px", textAlign: "center", fontSize: "11px", color: "#555", width: "32px", minWidth: "32px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
-  const ch = { borderRight: bdr, borderBottom: bdr, background: "#F6F6F6", padding: "0", textAlign: "center", fontSize: "11px", color: "#555", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
-  const dc = { borderRight: bdr, borderBottom: bdr, background: "#FFFFFF", padding: "1px 6px", fontSize: "11px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle", color: "#000" };
-  const dcR = { ...dc, textAlign: "right" };
+  // Exact border helpers
+  const bm = "1.5px solid #000"; // medium
+  const bt = "1px solid #000";   // thin
 
-  // Build rows
-  const rows = [];
-  rows.push(["Date", fDate, "", ""]);
-  rows.push(["To", `${customer?.name||""}${customer?.city?", "+customer.city:""}`, "", ""]);
-  if (subject) rows.push(["Subject", subject, "", ""]);
-  if (pax > 0) rows.push(["PAX", String(pax), "", ""]);
-  rows.push(["", "", "", ""]); // blank separator
-  rows.push(["Sr", "Description", "", "Amount"]); // header row
-  const headerIdx = rows.length - 1;
-  (items||[]).forEach((it, i) => {
-    rows.push([numFn(i), it.product_name+(it.description?` - ${it.description}`:""), "", formatCurrency(it.taxable_amount||(it.quantity||1)*(it.rate||0))]);
-  });
-  // pad to at least 3 item rows
-  const padCount = Math.max(0, 3 - (items||[]).length);
-  for (let i = 0; i < padCount; i++) rows.push(["","","",""]);
-  const totalIdx = rows.length;
-  rows.push(["", "", totalLabel, formatCurrency(fTotal)]); // total
-  rows.push(["","","",""]); // blank
-  noteSet.forEach(n => rows.push(["*", n, "", ""]));
-  // trailing empties
-  for (let i = 0; i < 4; i++) rows.push(["","","",""]);
+  const printCSS = `
+    body{margin:20px 30px;font-family:Arial,sans-serif;font-size:10pt;color:#000}
+    table{border-collapse:collapse;width:100%}
+    .bm{border:1.5px solid #000}.bt{border:1px solid #000}
+    .bl-m{border-left:1.5px solid #000}.br-m{border-right:1.5px solid #000}
+    .bt-m{border-top:1.5px solid #000}.bb-m{border-bottom:1.5px solid #000}
+    .bl-t{border-left:1px solid #000}.br-t{border-right:1px solid #000}
+    .bt-t{border-top:1px solid #000}.bb-t{border-bottom:1px solid #000}
+    .b{font-weight:700}.r{text-align:right}.c{text-align:center}.l{text-align:left}
+    td{padding:4px 6px;font-size:10pt;vertical-align:middle}
+    .note{font-size:9pt;color:#333;padding:3px 6px}
+    @media print{@page{margin:10mm}body{margin:0}}
+  `;
 
   const handlePrint = () => {
     const pw = window.open("", "_blank");
-    pw.document.write(`<html><head><title>${estimate_number||"Estimate"}</title><style>
-      body{margin:0;padding:0;font-family:Calibri,sans-serif;font-size:11px;color:#000}
-      table{border-collapse:collapse;width:100%}
-      td{border-right:1px solid #D4D4D4;border-bottom:1px solid #D4D4D4;height:21px;padding:1px 6px;vertical-align:middle}
-      .rh{background:#F6F6F6;text-align:center;color:#555;width:32px;padding:0 4px}
-      .ch{background:#F6F6F6;text-align:center;color:#555}
-      .r{text-align:right}
-      .b{font-weight:600}
-      .n{color:#888;font-size:10px;font-style:italic}
-      @media print{@page{margin:6mm}body{margin:0}}
-    </style></head><body>${document.getElementById("excel-estimate")?.innerHTML||""}</body></html>`);
+    pw.document.write(`<html><head><title>${estimate_number||"Estimate"}</title><style>${printCSS}</style></head><body>${document.getElementById("excel-est")?.innerHTML||""}</body></html>`);
     pw.document.close();
     pw.print();
   };
+
+  const itemsList = items || [];
 
   return (
     <div className="p-6">
@@ -94,33 +67,71 @@ export default function RawEstimate({ data, onClose }) {
         </div>
       </div>
 
-      <div id="excel-estimate" style={{background:"#fff"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",borderLeft:bdr,borderTop:bdr}}>
-          {/* Column headers: [corner] A B C D */}
-          <thead>
-            <tr>
-              <td style={{...rh,borderTop:"none",borderLeft:"none"}}></td>
-              <td style={{...ch,width:"100px"}}>A</td>
-              <td style={{...ch}}>B</td>
-              <td style={{...ch,width:"50px"}}>C</td>
-              <td style={{...ch,width:"130px"}}>D</td>
-            </tr>
-          </thead>
+      <div id="excel-est" style={{background:"#fff"}}>
+        <table style={{borderCollapse:"collapse",fontFamily:"Arial, sans-serif",fontSize:"10pt",color:"#000",width:"100%"}}>
+          <colgroup>
+            <col style={{width:"40px"}} />
+            <col style={{width:"260px"}} />
+            <col style={{width:"160px"}} />
+            <col style={{width:"150px"}} />
+          </colgroup>
           <tbody>
-            {rows.map((row, i) => {
-              const isHeader = i === headerIdx;
-              const isTotal = i === totalIdx;
-              const isNote = row[0] === "*";
+            {/* Row 1: Date */}
+            <tr>
+              <td style={{borderTop:bm,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>Date</td>
+              <td colSpan={3} style={{borderTop:bm,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{fDate}</td>
+            </tr>
+            {/* Row 2: To */}
+            <tr>
+              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>To</td>
+              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{customer?.name||""}{customer?.city?`, ${customer.city}`:""}</td>
+            </tr>
+            {/* Row 3: Subject */}
+            <tr>
+              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>Subject</td>
+              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{subject||""}</td>
+            </tr>
+            {/* Row 4: PAX */}
+            <tr>
+              <td style={{borderTop:bt,borderBottom:bt,borderLeft:bm,borderRight:bt,fontWeight:700,padding:"5px 6px",fontSize:"10pt"}}>PAX</td>
+              <td colSpan={3} style={{borderTop:bt,borderBottom:bt,borderLeft:bt,borderRight:bm,padding:"5px 6px",fontSize:"10pt"}}>{pax||""}</td>
+            </tr>
+            {/* Row 5: Empty */}
+            <tr><td style={{height:"10px",border:"none"}} colSpan={4}></td></tr>
+            {/* Row 6: Table Header */}
+            <tr>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bm,borderRight:bt,fontWeight:700,textAlign:"center",padding:"5px 6px",fontSize:"10pt"}}>Sr</td>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,fontWeight:700,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>Description</td>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bt,padding:"5px 6px",fontSize:"10pt"}}></td>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bm,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt"}}>Amount (Rs.)</td>
+            </tr>
+            {/* Item Rows */}
+            {itemsList.map((it, i) => {
+              const isLast = i === itemsList.length - 1;
+              const bbStyle = isLast ? bm : bt;
               return (
                 <tr key={i}>
-                  <td style={rh}>{i + 1}</td>
-                  <td style={{...dc, fontWeight: isHeader||isTotal?"600":"400", color: isNote?"#888":"#000", fontSize: isNote?"10px":"11px", fontStyle: isNote?"italic":"normal"}}>{row[0]}</td>
-                  <td style={{...dc, fontWeight: isHeader?"600":"400", color: isNote?"#888":"#000", fontSize: isNote?"10px":"11px", fontStyle: isNote?"italic":"normal"}}>{row[1]}</td>
-                  <td style={{...dcR, fontWeight: isTotal?"600":"400"}}>{row[2]}</td>
-                  <td style={{...dcR, fontWeight: isHeader||isTotal?"600":"400"}}>{row[3]}</td>
+                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bm,borderRight:bt,textAlign:"center",padding:"5px 6px",fontSize:"10pt"}}>{i+1}</td>
+                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bt,textAlign:"left",padding:"5px 6px",fontSize:"10pt"}}>{it.product_name}{it.description?` - ${it.description}`:""}</td>
+                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bt,padding:"5px 6px",fontSize:"10pt"}}></td>
+                  <td style={{borderTop:bt,borderBottom:bbStyle,borderLeft:bt,borderRight:bm,textAlign:"right",padding:"5px 6px",fontSize:"10pt",fontFamily:"Arial, sans-serif"}}>{formatCurrency(it.taxable_amount||(it.quantity||1)*(it.rate||0))}</td>
                 </tr>
               );
             })}
+            {/* TOTAL Row (A:C merged) */}
+            <tr>
+              <td colSpan={3} style={{borderTop:bt,borderBottom:bm,borderLeft:bm,borderRight:bt,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt"}}>{totalLabel}</td>
+              <td style={{borderTop:bm,borderBottom:bm,borderLeft:bt,borderRight:bm,fontWeight:700,textAlign:"right",padding:"5px 6px",fontSize:"10pt",fontFamily:"Arial, sans-serif"}}>{formatCurrency(fTotal)}</td>
+            </tr>
+            {/* Empty row */}
+            <tr><td style={{height:"10px",border:"none"}} colSpan={4}></td></tr>
+            {/* Notes */}
+            {notes.map((n, i) => (
+              <tr key={`n-${i}`}>
+                <td style={{border:"none"}}></td>
+                <td colSpan={3} style={{border:"none",fontSize:"9pt",color:"#333",padding:"2px 6px"}}>{n}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
