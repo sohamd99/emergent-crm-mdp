@@ -114,6 +114,7 @@ class CompanySettings(BaseModel):
     account_number: str = ""
     ifsc_code: str = ""
     branch: str = ""
+    whatsapp_number: str = ""
 
 # --- Helpers ---
 
@@ -163,6 +164,10 @@ def clean(doc):
     return {k: v for k, v in doc.items() if k != "_id"}
 
 async def mock_whatsapp(notif_type, entity_type, entity_id, message, phone=""):
+    # Fetch saved WhatsApp number if not provided
+    if not phone:
+        settings = await db.settings.find_one({"type": "company"}, {"_id": 0})
+        phone = settings.get("whatsapp_number", "") if settings else ""
     doc = {
         "id": str(uuid.uuid4()),
         "type": notif_type, "entity_type": entity_type,

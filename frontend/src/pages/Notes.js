@@ -43,7 +43,12 @@ export default function Notes() {
   const chunksRef = useRef([]);
 
   const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => {});
-  useEffect(() => { fetchNotes(); }, []);
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+
+  useEffect(() => {
+    fetchNotes();
+    axios.get(`${API}/settings`).then(r => setWhatsappNumber(r.data?.whatsapp_number || "")).catch(() => {});
+  }, []);
 
   // AI Process
   const handleAIProcess = async () => {
@@ -59,7 +64,7 @@ export default function Notes() {
       }
       setAiPlan(parsed);
       setStep("planned");
-      toast("WhatsApp Alert", { description: `AI analyzed: ${parsed.summary || "Notes processed"}`, className: "whatsapp-toast" });
+      toast("WhatsApp Alert", { description: `AI analyzed: ${parsed.summary || "Notes processed"}${whatsappNumber ? ` | Sending to ${whatsappNumber}` : ""}`, className: "whatsapp-toast" });
       fetchNotes();
     } catch (e) {
       toast.error("AI processing failed. Please try again.");
@@ -83,7 +88,7 @@ export default function Notes() {
       const created = res.data.created || [];
       created.forEach(item => {
         toast("WhatsApp Alert", {
-          description: `${item.type.replace("_", " ")} created: ${item.number || item.name}${item.total ? ` - Rs.${formatCurrency(item.total)}` : ""}`,
+          description: `${item.type.replace("_", " ")} created: ${item.number || item.name}${item.total ? ` - Rs.${formatCurrency(item.total)}` : ""}${whatsappNumber ? ` | Sent to ${whatsappNumber}` : ""}`,
           className: "whatsapp-toast"
         });
       });

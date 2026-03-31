@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Receipt, Users, FileCheck, Truck, Route, IndianRupee, Clock, AlertTriangle, MessageCircle } from "lucide-react";
+import { Receipt, Users, FileCheck, Truck, Route, IndianRupee, Clock, AlertTriangle, MessageCircle, Phone } from "lucide-react";
 import { formatCurrency, formatDate, getStatusColor } from "@/utils/helpers";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -10,9 +10,11 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/dashboard`).then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
+    axios.get(`${API}/settings`).then(r => setSettings(r.data)).catch(() => {});
   }, []);
 
   if (loading) return <div className="p-8 text-center text-[#4F5D75]">Loading dashboard...</div>;
@@ -94,6 +96,13 @@ export default function Dashboard() {
               <MessageCircle className="w-5 h-5 text-[#25D366]" strokeWidth={1.5} />
               WhatsApp Alerts
             </CardTitle>
+            {settings?.whatsapp_number && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <Phone className="w-3 h-3 text-[#25D366]" />
+                <span className="text-[10px] font-medium text-[#25D366]">{settings.whatsapp_number}</span>
+                <Badge className="bg-[#25D366]/10 text-[#25D366] text-[9px] border-0 ml-1">Connected</Badge>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {notifications.length === 0 ? (
@@ -103,7 +112,10 @@ export default function Dashboard() {
                 {notifications.map((n, i) => (
                   <div key={n.id} className="p-3 rounded-lg bg-[#f0fdf4] border-l-4 border-[#25D366] animate-row" style={{ animationDelay: `${i * 60}ms` }}>
                     <p className="text-xs font-medium text-[#2D3142]">{n.message}</p>
-                    <p className="text-[10px] text-[#4F5D75] mt-1">{formatDate(n.created_at)}</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[10px] text-[#4F5D75]">{formatDate(n.created_at)}</p>
+                      {n.phone && <p className="text-[10px] text-[#25D366] font-medium flex items-center gap-1"><Phone className="w-2.5 h-2.5" />{n.phone}</p>}
+                    </div>
                   </div>
                 ))}
               </div>
