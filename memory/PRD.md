@@ -36,7 +36,13 @@ Create an app where the boss talks on call and the assistant feeds notes into th
 - [x] Dashboard with stats, recent invoices, notifications feed
 - [x] All frontend pages with full CRUD capabilities
 - [x] Responsive sidebar navigation
-- [x] 100% backend and frontend tests passing
+- [x] **AI Command Center** (OpenAI GPT-4.1 via Emergent LLM key)
+  - Rough notes → AI parsing → structured data extraction
+  - Auto-creates/matches customers and products
+  - One-click creation of Invoice + Quotation + Challan + E-Way Bill
+  - Editable AI plan before execution
+  - WhatsApp notifications at every step
+- [x] 100% backend, frontend, and AI integration tests passing
 
 ## Prioritized Backlog
 ### P0 (Critical - Next Phase)
