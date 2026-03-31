@@ -42,6 +42,10 @@ export default function Notes() {
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const silenceStartRef = useRef(null);
+  const rafRef = useRef(null);
 
   const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => {});
   const [whatsappNumber, setWhatsappNumber] = useState("");
@@ -126,7 +130,38 @@ export default function Notes() {
     } catch { toast.error("Failed to save"); }
   };
 
-  // Voice Recording
+  // Voice Recording with auto-stop on silence
+  const SILENCE_THRESHOLD = 12; // RMS level below this = silence
+  const SILENCE_DURATION = 2000; // 2 seconds of silence to auto-stop
+
+  const monitorSilence = () => {
+    if (!analyserRef.current) return;
+    const data = new Uint8Array(analyserRef.current.fftSize);
+    analyserRef.current.getByteTimeDomainData(data);
+    // Calculate RMS
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const val = (data[i] - 128) / 128;
+      sum += val * val;
+    }
+    const rms = Math.sqrt(sum / data.length) * 100;
+
+    if (rms < SILENCE_THRESHOLD) {
+      // Silence detected
+      if (!silenceStartRef.current) {
+        silenceStartRef.current = Date.now();
+      } else if (Date.now() - silenceStartRef.current > SILENCE_DURATION) {
+        // Been silent long enough — auto stop
+        stopRecording();
+        return;
+      }
+    } else {
+      // Sound detected — reset silence timer
+      silenceStartRef.current = null;
+    }
+    rafRef.current = requestAnimationFrame(monitorSilence);
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -134,6 +169,16 @@ export default function Notes() {
       });
       streamRef.current = stream;
       chunksRef.current = [];
+      silenceStartRef.current = null;
+
+      // Set up audio analysis for silence detection
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      audioCtxRef.current = audioCtx;
+      analyserRef.current = analyser;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -144,6 +189,9 @@ export default function Notes() {
       recorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         streamRef.current?.getTracks().forEach(t => t.stop());
+        if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
+        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+        analyserRef.current = null;
         if (blob.size < 100) { toast.error("Recording too short"); return; }
         await transcribeAudio(blob, mimeType.includes('mp4') ? 'recording.m4a' : 'recording.webm');
       };
@@ -151,13 +199,17 @@ export default function Notes() {
       recorderRef.current = recorder;
       setIsRecording(true);
       setDetectedLang("");
-      toast.info("Listening... Speak in Hindi, Marathi, or English");
+      toast.info("Listening... Will auto-stop when you pause speaking");
+
+      // Start silence monitoring after a 1.5s grace period
+      setTimeout(() => { rafRef.current = requestAnimationFrame(monitorSilence); }, 1500);
     } catch (err) {
       toast.error("Microphone access denied. Please allow mic permission.");
     }
   };
 
   const stopRecording = () => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
@@ -256,7 +308,7 @@ export default function Notes() {
                     <span key={i} className="wave-bar" style={{ animationDelay: `${i * 0.12}s`, height: '4px' }} />
                   ))}
                 </div>
-                <span className="text-sm font-medium text-red-600">Listening... Speak now</span>
+                <span className="text-sm font-medium text-red-600">Listening... auto-stops on pause</span>
                 <Badge className="bg-red-100 text-red-600 text-[10px] border-0 ml-auto">
                   <Languages className="w-3 h-3 mr-1" /> Hindi / Marathi / English
                 </Badge>
