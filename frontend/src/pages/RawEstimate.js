@@ -28,14 +28,14 @@ export default function RawEstimate({ data, onClose }) {
   const fDate = date ? dateFn(date) : "";
   const fTotal = total || (items||[]).reduce((s,it)=>s+(it.taxable_amount||(it.quantity||1)*(it.rate||0)),0);
 
-  const bdr = "1px solid #D4D4D4";
+  const bdr = "1px solid #ACACAC";
   const rh = { border: bdr, background: "#F6F6F6", padding: "0 4px", textAlign: "center", fontSize: "11px", color: "#555", width: "32px", minWidth: "32px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
   const colH = { border: bdr, background: "#F6F6F6", padding: "0", textAlign: "center", fontSize: "11px", color: "#555", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle" };
   const dc = { border: bdr, background: "#fff", padding: "2px 6px", fontSize: "11px", fontFamily: "Calibri, sans-serif", height: "21px", verticalAlign: "middle", color: "#000" };
   const dcR = { ...dc, textAlign: "right" };
   const dcB = { ...dc, fontWeight: 700 };
   const dcBR = { ...dcR, fontWeight: 700 };
-  const empty = { ...dc, color: "#fff" };
+  const empty = { ...dc };
 
   const itemsList = items || [];
   let rn = 0;
@@ -46,7 +46,7 @@ export default function RawEstimate({ data, onClose }) {
     pw.document.write(`<html><head><title>${estimate_number||"Estimate"}</title><style>
       body{margin:0;padding:0;font-family:Calibri,sans-serif;font-size:11px;color:#000}
       table{border-collapse:collapse;width:100%}
-      td{border:1px solid #D4D4D4;height:21px;padding:2px 6px;vertical-align:middle}
+      td{border:1px solid #ACACAC;height:21px;padding:2px 6px;vertical-align:middle}
       .rh{background:#F6F6F6;text-align:center;color:#555;width:32px;padding:0 4px}
       .ch{background:#F6F6F6;text-align:center;color:#555}
       .r{text-align:right}.b{font-weight:700}
