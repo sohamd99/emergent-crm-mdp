@@ -1,34 +1,61 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* WhatsApp-style toast */
+.whatsapp-toast {
+    border-left: 4px solid #25D366 !important;
+    background: #f0fdf4 !important;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Status badges */
+.badge-draft { background-color: #F4F3F0; color: #4F5D75; }
+.badge-sent { background-color: #DBEAFE; color: #1E40AF; }
+.badge-paid { background-color: #D1FAE5; color: #065F46; }
+.badge-overdue { background-color: #FEE2E2; color: #991B1B; }
+.badge-accepted { background-color: #D1FAE5; color: #065F46; }
+.badge-rejected { background-color: #FEE2E2; color: #991B1B; }
+.badge-pending { background-color: #FEF3C7; color: #92400E; }
+.badge-delivered { background-color: #D1FAE5; color: #065F46; }
+.badge-dispatched { background-color: #DBEAFE; color: #1E40AF; }
+.badge-active { background-color: #D1FAE5; color: #065F46; }
+.badge-cancelled { background-color: #FEE2E2; color: #991B1B; }
+.badge-expired { background-color: #F4F3F0; color: #4F5D75; }
+
+/* Stagger animation for table rows */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.animate-row {
+    animation: fadeInUp 0.3s ease-out forwards;
+    opacity: 0;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Invoice print styles */
+.invoice-preview {
+    font-family: 'Inter', sans-serif;
+    color: #2D3142;
+}
+.invoice-preview table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.invoice-preview th,
+.invoice-preview td {
+    border: 1px solid #E5E0DA;
+    padding: 8px 12px;
+    text-align: left;
+}
+.invoice-preview th {
+    background: #F4F3F0;
+    font-weight: 600;
+    font-size: 13px;
 }
 
-.App-link {
-    color: #61dafb;
+/* Page transition */
+.page-enter {
+    animation: fadeInUp 0.4s ease-out;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
-}
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #E5E0DA; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #D4A373; }
