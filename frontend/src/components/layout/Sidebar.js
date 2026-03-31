@@ -6,7 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, FileText, Users, Package, Receipt,
-  FileCheck, Truck, Route, Menu, Settings, Bell
+  FileCheck, FileSpreadsheet, Truck, Route, Menu, Settings, Bell
 } from "lucide-react";
 
 const navItems = [
@@ -16,6 +16,7 @@ const navItems = [
   { path: "/products", icon: Package, label: "Products" },
   { path: "/invoices", icon: Receipt, label: "Invoices" },
   { path: "/quotations", icon: FileCheck, label: "Quotations" },
+  { path: "/estimates", icon: FileSpreadsheet, label: "Estimates" },
   { path: "/challans", icon: Truck, label: "Delivery Challans" },
   { path: "/eway-bills", icon: Route, label: "E-Way Bills" },
 ];

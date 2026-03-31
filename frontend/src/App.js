@@ -8,6 +8,7 @@ import Customers from "@/pages/Customers";
 import Products from "@/pages/Products";
 import Invoices from "@/pages/Invoices";
 import Quotations from "@/pages/Quotations";
+import Estimates from "@/pages/Estimates";
 import DeliveryChallans from "@/pages/DeliveryChallans";
 import EwayBills from "@/pages/EwayBills";
 
@@ -25,6 +26,7 @@ function App() {
             <Route path="/products" element={<Products />} />
             <Route path="/invoices" element={<Invoices />} />
             <Route path="/quotations" element={<Quotations />} />
+            <Route path="/estimates" element={<Estimates />} />
             <Route path="/challans" element={<DeliveryChallans />} />
             <Route path="/eway-bills" element={<EwayBills />} />
           </Routes>

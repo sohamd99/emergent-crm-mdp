@@ -87,6 +87,14 @@ class ChallanCreate(BaseModel):
     transport_mode: str = "Road"
     notes: str = ""
 
+class EstimateCreate(BaseModel):
+    customer_id: str
+    date: str
+    items: List[LineItem]
+    pax: int = 0
+    subject: str = ""
+    notes: str = ""
+
 class EwayBillCreate(BaseModel):
     invoice_id: str = ""
     from_place: str = ""
@@ -188,6 +196,7 @@ async def get_dashboard():
         "total_quotations": await db.quotations.count_documents({}),
         "total_challans": await db.delivery_challans.count_documents({}),
         "total_eway_bills": await db.eway_bills.count_documents({}),
+        "total_estimates": await db.estimates.count_documents({}),
         "paid_invoices": await db.invoices.count_documents({"status": "paid"}),
         "pending_invoices": await db.invoices.count_documents({"status": {"$in": ["sent", "draft"]}}),
         "overdue_invoices": await db.invoices.count_documents({"status": "overdue"}),
@@ -462,6 +471,53 @@ async def delete_challan(chid: str):
     await db.delivery_challans.delete_one({"id": chid})
     return {"message": "Deleted"}
 
+# --- Estimates ---
+@api_router.get("/estimates")
+async def get_estimates():
+    return await db.estimates.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+@api_router.get("/estimates/{eid}")
+async def get_estimate(eid: str):
+    e = await db.estimates.find_one({"id": eid}, {"_id": 0})
+    if not e:
+        raise HTTPException(404, "Estimate not found")
+    if e.get("customer_id"):
+        e["customer"] = await db.customers.find_one({"id": e["customer_id"]}, {"_id": 0})
+    return e
+
+@api_router.post("/estimates")
+async def create_estimate(data: EstimateCreate):
+    num = await get_next_number("estimate", "EST")
+    items_data = [{"product_name": i.product_name, "description": i.description, "hsn_code": i.hsn_code,
+                   "quantity": i.quantity, "unit": i.unit, "rate": i.rate, "gst_rate": i.gst_rate,
+                   "taxable_amount": round(i.quantity * i.rate, 2)} for i in data.items]
+    total = sum(it["taxable_amount"] for it in items_data)
+    doc = {
+        "id": str(uuid.uuid4()), "estimate_number": num,
+        "customer_id": data.customer_id, "date": data.date,
+        "items": items_data, "total": round(total, 2),
+        "pax": data.pax, "subject": data.subject,
+        "status": "draft", "notes": data.notes,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.estimates.insert_one(doc)
+    c = await db.customers.find_one({"id": data.customer_id}, {"_id": 0})
+    cname = c["name"] if c else "Customer"
+    await mock_whatsapp("estimate_created", "estimate", doc["id"], f"Estimate {num} for {cname} - Rs.{round(total, 2)}")
+    return clean(doc)
+
+@api_router.patch("/estimates/{eid}/status")
+async def update_estimate_status(eid: str, status: str = Query(...)):
+    await db.estimates.update_one({"id": eid}, {"$set": {"status": status}})
+    e = await db.estimates.find_one({"id": eid}, {"_id": 0})
+    await mock_whatsapp("status_change", "estimate", eid, f"Estimate {e.get('estimate_number','')} status: {status}")
+    return e
+
+@api_router.delete("/estimates/{eid}")
+async def delete_estimate(eid: str):
+    await db.estimates.delete_one({"id": eid})
+    return {"message": "Deleted"}
+
 # --- E-way Bills ---
 @api_router.get("/eway-bills")
 async def get_eway_bills():
@@ -578,6 +634,7 @@ Rules:
 - If matched, use existing_id; otherwise leave empty for auto-creation
 - If bill/payment/invoice mentioned -> include "invoice" in actions
 - If quote/estimate/quotation mentioned -> include "quotation"
+- If "estimate" or "rough estimate" or "approximate cost" mentioned -> include "estimate"
 - If delivery/dispatch/send/ship mentioned -> include "delivery_challan"
 - If transport/vehicle/e-way/eway mentioned -> include "eway_bill"
 - If nothing specific mentioned, default to ["invoice"]
@@ -726,6 +783,21 @@ async def execute_ai_plan(plan: dict = Body(...)):
         await db.quotations.insert_one(qt)
         results["created"].append({"type": "quotation", "number": num, "id": qt["id"], "total": totals["total"]})
         await mock_whatsapp("ai_quotation", "quotation", qt["id"], f"AI created Quotation {num} - Rs.{totals['total']}")
+
+    # 4b. Create Estimate (raw format)
+    if "estimate" in actions:
+        num = await get_next_number("estimate", "EST")
+        pax = int(plan.get("pax", 0))
+        subject = plan.get("subject", plan.get("notes",""))
+        est_total = sum(it.get("rate",0) * it.get("quantity",1) for it in items_for_doc)
+        est_items = [{"product_name": it["product_name"], "description": it.get("description",""), "quantity": it.get("quantity",1),
+                      "unit": it.get("unit","NOS"), "rate": it.get("rate",0), "taxable_amount": round(it.get("rate",0)*it.get("quantity",1),2)} for it in items_for_doc]
+        est = {"id": str(uuid.uuid4()), "estimate_number": num, "customer_id": customer_id, "date": today,
+               "items": est_items, "total": round(est_total, 2), "pax": pax, "subject": subject,
+               "status": "draft", "notes": plan.get("notes",""), "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.estimates.insert_one(est)
+        results["created"].append({"type": "estimate", "number": num, "id": est["id"], "total": round(est_total, 2)})
+        await mock_whatsapp("ai_estimate", "estimate", est["id"], f"AI created Estimate {num} - Rs.{round(est_total,2)}")
 
     # 5. Create Delivery Challan
     if "delivery_challan" in actions:

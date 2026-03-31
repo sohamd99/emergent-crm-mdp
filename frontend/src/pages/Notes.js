@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sparkles, Upload, Trash2, FileText, Camera, Loader2,
-  CheckCircle2, Receipt, FileCheck, Truck, Route, User, Package,
+  CheckCircle2, Receipt, FileCheck, FileSpreadsheet, Truck, Route, User, Package,
   ArrowRight, Zap, MessageCircle, AlertCircle, RotateCcw, Mic, MicOff, Languages
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,7 +22,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const ACTION_LABELS = {
   invoice: { label: "Tax Invoice", icon: Receipt, color: "text-[#E07A5F]", bg: "bg-[#E07A5F]/10" },
-  quotation: { label: "Quotation", icon: FileCheck, color: "text-[#81B29A]", bg: "bg-[#81B29A]/10" },
+  quotation: { label: "Quotation (MDP)", icon: FileCheck, color: "text-[#81B29A]", bg: "bg-[#81B29A]/10" },
+  estimate: { label: "Estimate (Raw)", icon: FileSpreadsheet, color: "text-[#4F5D75]", bg: "bg-[#4F5D75]/10" },
   delivery_challan: { label: "Delivery Challan", icon: Truck, color: "text-[#D4A373]", bg: "bg-[#D4A373]/10" },
   eway_bill: { label: "E-Way Bill", icon: Route, color: "text-[#4F5D75]", bg: "bg-[#4F5D75]/10" },
 };
