@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query, Body
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,6 +10,8 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 import io
+import json
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -509,6 +511,195 @@ async def delete_eway_bill(eid: str):
 @api_router.get("/notifications")
 async def get_notifications():
     return await db.notifications.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+
+# --- AI Processing ---
+@api_router.post("/ai/parse-notes")
+async def parse_notes_ai(data: NoteCreate):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    note_doc = {"id": str(uuid.uuid4()), "content": data.content, "source": "ai", "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.notes.insert_one(note_doc)
+
+    customers = await db.customers.find({}, {"_id": 0, "name": 1, "id": 1, "phone": 1}).to_list(100)
+    products = await db.products.find({}, {"_id": 0, "name": 1, "id": 1, "rate": 1, "hsn_code": 1, "gst_rate": 1, "unit": 1}).to_list(100)
+    settings = await db.settings.find_one({"type": "company"}, {"_id": 0})
+
+    cust_ctx = json.dumps([{"name": c["name"], "id": c["id"], "phone": c.get("phone", "")} for c in customers]) if customers else "[]"
+    prod_ctx = json.dumps([{"name": p["name"], "id": p["id"], "rate": p.get("rate", 0), "hsn_code": p.get("hsn_code", ""), "unit": p.get("unit", "NOS"), "gst_rate": p.get("gst_rate", 18)} for p in products]) if products else "[]"
+    company_state = settings.get("state", "Maharashtra") if settings else "Maharashtra"
+
+    system_prompt = f"""You are BillFlow AI - a business document assistant for Indian GST billing software.
+Extract structured information from rough business notes/instructions and return ONLY valid JSON.
+
+EXISTING CUSTOMERS (match by name if possible): {cust_ctx}
+EXISTING PRODUCTS (match by name if possible): {prod_ctx}
+COMPANY STATE: {company_state}
+
+Return this exact JSON structure:
+{{
+  "customer": {{
+    "existing_id": "matched customer id or empty string",
+    "name": "", "phone": "", "email": "", "gstin": "",
+    "address": "", "city": "", "state": "", "state_code": "", "pincode": ""
+  }},
+  "items": [
+    {{
+      "existing_id": "matched product id or empty string",
+      "product_name": "", "hsn_code": "", "quantity": 1, "unit": "NOS",
+      "rate": 0, "gst_rate": 18, "description": ""
+    }}
+  ],
+  "delivery": {{
+    "vehicle_number": "", "transport_mode": "Road",
+    "to_city": "", "to_state": "", "to_pincode": "", "distance": 0
+  }},
+  "actions": ["invoice"],
+  "supply_type": "intra",
+  "due_date_days": 30,
+  "notes": "",
+  "terms": "",
+  "summary": "Brief summary of what was understood"
+}}
+
+Rules:
+- Match existing customers/products by name (case-insensitive, partial match OK)
+- If matched, use existing_id; otherwise leave empty for auto-creation
+- If bill/payment/invoice mentioned -> include "invoice" in actions
+- If quote/estimate/quotation mentioned -> include "quotation"
+- If delivery/dispatch/send/ship mentioned -> include "delivery_challan"
+- If transport/vehicle/e-way/eway mentioned -> include "eway_bill"
+- If nothing specific mentioned, default to ["invoice"]
+- If customer state differs from company state -> "inter", else "intra"
+- Default GST 18% unless specified. Extract ALL items with quantities and rates.
+- For matched products, use their existing rate/HSN/GST if not explicitly overridden in notes."""
+
+    try:
+        chat = LlmChat(
+            api_key=os.environ.get('EMERGENT_LLM_KEY'),
+            session_id=f"parse-{note_doc['id']}",
+            system_message=system_prompt
+        ).with_model("openai", "gpt-4.1")
+
+        response_text = await chat.send_message(UserMessage(text=data.content))
+
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', response_text)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_obj = re.search(r'\{[\s\S]*\}', response_text)
+            json_str = json_obj.group() if json_obj else response_text
+
+        parsed = json.loads(json_str.strip())
+    except json.JSONDecodeError:
+        parsed = {"error": "Failed to parse AI response", "raw_response": response_text[:500], "actions": ["invoice"], "summary": "AI could not parse the notes properly. Please review manually."}
+    except Exception as e:
+        logger.error(f"AI parsing failed: {e}")
+        parsed = {"error": str(e), "actions": ["invoice"], "summary": "AI processing failed. Please try again."}
+
+    await db.notes.update_one({"id": note_doc["id"]}, {"$set": {"ai_parsed": True}})
+    await mock_whatsapp("ai_processed", "note", note_doc["id"], f"AI analyzed: {parsed.get('summary', 'Notes processed')}")
+
+    return {"note_id": note_doc["id"], "parsed": parsed}
+
+
+@api_router.post("/ai/execute-plan")
+async def execute_ai_plan(plan: dict = Body(...)):
+    results = {"created": [], "errors": []}
+
+    # 1. Create or match customer
+    customer_id = plan.get("customer", {}).get("existing_id", "")
+    if not customer_id:
+        cdata = plan.get("customer", {})
+        if cdata.get("name"):
+            doc = {"id": str(uuid.uuid4()), **{k: cdata.get(k, "") for k in ["name","email","phone","gstin","address","city","state","state_code","pincode"]}, "created_at": datetime.now(timezone.utc).isoformat()}
+            await db.customers.insert_one(doc)
+            customer_id = doc["id"]
+            results["created"].append({"type": "customer", "name": cdata["name"], "id": customer_id})
+            await mock_whatsapp("ai_customer", "customer", customer_id, f"AI created customer: {cdata['name']}")
+
+    if not customer_id:
+        return {"error": "No customer identified in the plan", "results": results}
+
+    # 2. Create new products if needed
+    items_for_doc = []
+    for item in plan.get("items", []):
+        if not item.get("existing_id") and item.get("product_name"):
+            prod = {"id": str(uuid.uuid4()), "name": item["product_name"], "hsn_code": item.get("hsn_code",""), "unit": item.get("unit","NOS"),
+                     "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18)), "description": item.get("description",""), "created_at": datetime.now(timezone.utc).isoformat()}
+            await db.products.insert_one(prod)
+            results["created"].append({"type": "product", "name": item["product_name"]})
+
+        items_for_doc.append({
+            "product_name": item.get("product_name",""), "description": item.get("description",""),
+            "hsn_code": item.get("hsn_code",""), "quantity": float(item.get("quantity",1)),
+            "unit": item.get("unit","NOS"), "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18))
+        })
+
+    actions = plan.get("actions", [])
+    supply_type = plan.get("supply_type", "intra")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    due_days = int(plan.get("due_date_days", 30))
+    due_date = (datetime.now(timezone.utc) + timedelta(days=due_days)).strftime("%Y-%m-%d")
+
+    line_items = [LineItem(**it) for it in items_for_doc]
+    totals = calc_totals(line_items, supply_type)
+    invoice_id = ""
+
+    # 3. Create Invoice
+    if "invoice" in actions:
+        num = await get_next_number("invoice", "INV")
+        inv = {"id": str(uuid.uuid4()), "invoice_number": num, "customer_id": customer_id, "date": today, "due_date": due_date,
+               "supply_type": supply_type, **totals, "amount_paid": 0, "status": "draft",
+               "notes": plan.get("notes",""), "terms": plan.get("terms",""), "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.invoices.insert_one(inv)
+        invoice_id = inv["id"]
+        results["created"].append({"type": "invoice", "number": num, "id": invoice_id, "total": totals["total"]})
+        await mock_whatsapp("ai_invoice", "invoice", invoice_id, f"AI created Invoice {num} - Rs.{totals['total']}")
+
+    # 4. Create Quotation
+    if "quotation" in actions:
+        num = await get_next_number("quotation", "QT")
+        valid_until = (datetime.now(timezone.utc) + timedelta(days=15)).strftime("%Y-%m-%d")
+        qt = {"id": str(uuid.uuid4()), "quote_number": num, "customer_id": customer_id, "date": today, "valid_until": valid_until,
+              "supply_type": supply_type, **totals, "status": "draft", "notes": plan.get("notes",""), "terms": plan.get("terms",""), "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.quotations.insert_one(qt)
+        results["created"].append({"type": "quotation", "number": num, "id": qt["id"], "total": totals["total"]})
+        await mock_whatsapp("ai_quotation", "quotation", qt["id"], f"AI created Quotation {num} - Rs.{totals['total']}")
+
+    # 5. Create Delivery Challan
+    if "delivery_challan" in actions:
+        num = await get_next_number("challan", "DC")
+        delivery = plan.get("delivery", {})
+        ch = {"id": str(uuid.uuid4()), "challan_number": num, "customer_id": customer_id, "date": today,
+              "invoice_id": invoice_id, "items": items_for_doc, "vehicle_number": delivery.get("vehicle_number",""),
+              "transport_mode": delivery.get("transport_mode","Road"), "status": "pending", "notes": plan.get("notes",""), "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.delivery_challans.insert_one(ch)
+        results["created"].append({"type": "delivery_challan", "number": num, "id": ch["id"]})
+        await mock_whatsapp("ai_challan", "challan", ch["id"], f"AI created Challan {num}")
+
+    # 6. Create E-Way Bill
+    if "eway_bill" in actions:
+        inv_id = invoice_id
+        if not inv_id:
+            invs = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+            inv_id = invs[0]["id"] if invs else ""
+        if inv_id:
+            num = await get_next_number("eway_bill", "EWB")
+            delivery = plan.get("delivery", {})
+            settings = await db.settings.find_one({"type": "company"}, {"_id": 0})
+            invoice = await db.invoices.find_one({"id": inv_id}, {"_id": 0})
+            ewb = {"id": str(uuid.uuid4()), "eway_bill_number": num, "invoice_id": inv_id,
+                   "invoice_number": invoice.get("invoice_number","") if invoice else "", "invoice_total": invoice.get("total",0) if invoice else 0,
+                   "from_place": settings.get("city","") if settings else "", "from_state": settings.get("state","") if settings else "", "from_pincode": settings.get("pincode","") if settings else "",
+                   "to_place": delivery.get("to_city",""), "to_state": delivery.get("to_state",""), "to_pincode": delivery.get("to_pincode",""),
+                   "vehicle_number": delivery.get("vehicle_number",""), "vehicle_type": "Regular", "transport_mode": delivery.get("transport_mode","Road"),
+                   "transporter_id": "", "distance": float(delivery.get("distance",0)), "status": "active",
+                   "valid_until": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(), "created_at": datetime.now(timezone.utc).isoformat()}
+            await db.eway_bills.insert_one(ewb)
+            results["created"].append({"type": "eway_bill", "number": num, "id": ewb["id"]})
+            await mock_whatsapp("ai_eway", "eway_bill", ewb["id"], f"AI created E-Way Bill {num}")
+
+    return results
 
 # --- Setup ---
 app.include_router(api_router)

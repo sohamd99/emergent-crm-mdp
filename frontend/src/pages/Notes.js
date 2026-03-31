@@ -2,37 +2,92 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, Trash2, FileText, Camera } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sparkles, Upload, Trash2, FileText, Camera, Loader2,
+  CheckCircle2, Receipt, FileCheck, Truck, Route, User, Package,
+  ArrowRight, Zap, MessageCircle, AlertCircle, RotateCcw
+} from "lucide-react";
 import { toast } from "sonner";
-import { formatDate } from "@/utils/helpers";
+import { formatDate, formatCurrency } from "@/utils/helpers";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const ACTION_LABELS = {
+  invoice: { label: "Tax Invoice", icon: Receipt, color: "text-[#E07A5F]", bg: "bg-[#E07A5F]/10" },
+  quotation: { label: "Quotation", icon: FileCheck, color: "text-[#81B29A]", bg: "bg-[#81B29A]/10" },
+  delivery_challan: { label: "Delivery Challan", icon: Truck, color: "text-[#D4A373]", bg: "bg-[#D4A373]/10" },
+  eway_bill: { label: "E-Way Bill", icon: Route, color: "text-[#4F5D75]", bg: "bg-[#4F5D75]/10" },
+};
 
 export default function Notes() {
   const [notes, setNotes] = useState([]);
   const [content, setContent] = useState("");
+  const [step, setStep] = useState("idle");
+  const [aiPlan, setAiPlan] = useState(null);
+  const [results, setResults] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
-  const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => toast.error("Failed to load notes"));
-
+  const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => {});
   useEffect(() => { fetchNotes(); }, []);
 
-  const handleSave = async () => {
-    if (!content.trim()) return toast.error("Please enter some content");
-    setSaving(true);
+  // AI Process
+  const handleAIProcess = async () => {
+    if (!content.trim()) return toast.error("Enter some notes first");
+    setStep("processing");
     try {
-      await axios.post(`${API}/notes`, { content, source: "manual" });
-      toast("WhatsApp Alert", { description: "New note has been saved", className: "whatsapp-toast" });
-      setContent("");
+      const res = await axios.post(`${API}/ai/parse-notes`, { content, source: "ai" });
+      const parsed = res.data.parsed;
+      if (parsed.error && !parsed.customer) {
+        toast.error("AI couldn't parse the notes. Try being more specific.");
+        setStep("idle");
+        return;
+      }
+      setAiPlan(parsed);
+      setStep("planned");
+      toast("WhatsApp Alert", { description: `AI analyzed: ${parsed.summary || "Notes processed"}`, className: "whatsapp-toast" });
       fetchNotes();
-    } catch { toast.error("Failed to save note"); }
-    finally { setSaving(false); }
+    } catch (e) {
+      toast.error("AI processing failed. Please try again.");
+      setStep("idle");
+    }
   };
 
+  // Execute plan
+  const handleExecute = async () => {
+    if (!aiPlan) return;
+    setStep("executing");
+    try {
+      const res = await axios.post(`${API}/ai/execute-plan`, aiPlan);
+      if (res.data.error) {
+        toast.error(res.data.error);
+        setStep("planned");
+        return;
+      }
+      setResults(res.data);
+      setStep("done");
+      const created = res.data.created || [];
+      created.forEach(item => {
+        toast("WhatsApp Alert", {
+          description: `${item.type.replace("_", " ")} created: ${item.number || item.name}${item.total ? ` - Rs.${formatCurrency(item.total)}` : ""}`,
+          className: "whatsapp-toast"
+        });
+      });
+    } catch {
+      toast.error("Execution failed");
+      setStep("planned");
+    }
+  };
+
+  // OCR Upload
   const handleOCR = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -41,134 +96,366 @@ export default function Notes() {
       const formData = new FormData();
       formData.append("file", file);
       const res = await axios.post(`${API}/notes/ocr`, formData, { headers: { "Content-Type": "multipart/form-data" } });
-      toast("WhatsApp Alert", { description: `OCR extracted: ${res.data.content?.slice(0, 60)}...`, className: "whatsapp-toast" });
+      setContent(res.data.content || "");
+      toast.success("Text extracted from image! Click 'AI Process' to continue.");
       fetchNotes();
-    } catch { toast.error("OCR processing failed"); }
+    } catch { toast.error("OCR failed"); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
 
-  const handleDelete = async (id) => {
+  // Manual save
+  const handleManualSave = async () => {
+    if (!content.trim()) return toast.error("Enter some content");
     try {
-      await axios.delete(`${API}/notes/${id}`);
-      toast.success("Note deleted");
+      await axios.post(`${API}/notes`, { content, source: "manual" });
+      toast.success("Note saved");
+      setContent("");
       fetchNotes();
-    } catch { toast.error("Failed to delete"); }
+    } catch { toast.error("Failed to save"); }
+  };
+
+  // Toggle action
+  const toggleAction = (action) => {
+    if (!aiPlan) return;
+    const actions = aiPlan.actions || [];
+    setAiPlan({
+      ...aiPlan,
+      actions: actions.includes(action) ? actions.filter(a => a !== action) : [...actions, action]
+    });
+  };
+
+  // Update plan item
+  const updatePlanItem = (idx, field, value) => {
+    const items = [...(aiPlan.items || [])];
+    items[idx] = { ...items[idx], [field]: value };
+    setAiPlan({ ...aiPlan, items });
+  };
+
+  // Reset
+  const handleReset = () => {
+    setStep("idle");
+    setAiPlan(null);
+    setResults(null);
+    setContent("");
+  };
+
+  const handleDelete = async (id) => {
+    try { await axios.delete(`${API}/notes/${id}`); toast.success("Deleted"); fetchNotes(); } catch { toast.error("Failed"); }
   };
 
   return (
     <div className="p-6 md:p-8 space-y-6 page-enter" data-testid="notes-page">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2D3142]" style={{ fontFamily: 'Manrope, sans-serif' }}>Notes</h1>
-        <p className="text-sm text-[#4F5D75] mt-1">Capture notes manually or via OCR scan</p>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2D3142]" style={{ fontFamily: 'Manrope, sans-serif' }}>
+          <Sparkles className="w-7 h-7 inline-block mr-2 text-[#E07A5F]" strokeWidth={1.5} />
+          AI Command Center
+        </h1>
+        <p className="text-sm text-[#4F5D75] mt-1">Enter rough notes and let AI create invoices, quotations, challans & e-way bills automatically</p>
       </div>
 
-      {/* Input Area */}
+      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Manual Entry */}
-        <Card className="border-[#E5E0DA]" data-testid="manual-note-card">
+        {/* Left: Input */}
+        <Card className="border-[#E5E0DA]" data-testid="ai-input-card">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold text-[#2D3142] flex items-center gap-2">
               <FileText className="w-5 h-5 text-[#D4A373]" strokeWidth={1.5} />
-              Manual Entry
+              Enter Instructions
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Textarea
-              data-testid="note-textarea"
-              placeholder="Type your notes here... (e.g., boss's instructions from the call)"
+              data-testid="ai-notes-textarea"
+              placeholder={"Example: Sharma ji called, needs 50 laptops at Rs.45,000 each.\nDeliver to Pune office, vehicle MH12AB1234.\nAlso send quotation for 100 monitors at Rs.12,000.\n\nJust type rough notes - AI will handle the rest!"}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="min-h-[180px] bg-[#F9F8F6] border-[#E5E0DA] focus:ring-2 focus:ring-[#81B29A] focus:border-[#81B29A] resize-none"
+              className="min-h-[200px] bg-[#F9F8F6] border-[#E5E0DA] focus:ring-2 focus:ring-[#E07A5F] focus:border-[#E07A5F] resize-none text-sm"
+              disabled={step === "processing" || step === "executing"}
             />
-            <Button
-              data-testid="save-note-button"
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full bg-[#E07A5F] hover:bg-[#C96D55] text-white font-medium"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {saving ? "Saving..." : "Save Note"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* OCR Upload */}
-        <Card className="border-[#E5E0DA]" data-testid="ocr-note-card">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold text-[#2D3142] flex items-center gap-2">
-              <Camera className="w-5 h-5 text-[#81B29A]" strokeWidth={1.5} />
-              OCR Scan
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div
-              className="border-2 border-dashed border-[#E5E0DA] rounded-xl p-8 text-center hover:border-[#81B29A] transition-colors cursor-pointer"
-              onClick={() => fileRef.current?.click()}
-            >
-              <Upload className="w-10 h-10 text-[#4F5D75] mx-auto mb-4" strokeWidth={1.5} />
-              <p className="text-sm font-medium text-[#2D3142] mb-1">
-                {uploading ? "Processing image..." : "Click to upload image"}
-              </p>
-              <p className="text-xs text-[#4F5D75]">Supports JPG, PNG, BMP, TIFF</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleOCR}
-                data-testid="ocr-file-input"
-              />
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                data-testid="ai-process-button"
+                onClick={handleAIProcess}
+                disabled={step === "processing" || step === "executing" || !content.trim()}
+                className="bg-[#E07A5F] hover:bg-[#C96D55] text-white flex-1 sm:flex-none"
+              >
+                {step === "processing" ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</>
+                ) : (
+                  <><Sparkles className="w-4 h-4 mr-2" /> AI Process</>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading || step === "processing"}
+                className="border-[#E5E0DA] text-[#4F5D75]"
+                data-testid="ocr-upload-button"
+              >
+                <Camera className="w-4 h-4 mr-2" />
+                {uploading ? "Scanning..." : "OCR Scan"}
+              </Button>
+              <Button variant="outline" onClick={handleManualSave} className="border-[#E5E0DA] text-[#4F5D75]" data-testid="save-note-only-button">
+                Save Note Only
+              </Button>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleOCR} data-testid="ocr-file-input" />
             </div>
-            {uploading && (
-              <div className="mt-4 p-3 rounded-lg bg-[#81B29A]/10 text-sm text-[#81B29A] text-center font-medium">
-                Extracting text from image...
-              </div>
+            {step !== "idle" && (
+              <Button variant="ghost" size="sm" onClick={handleReset} className="text-[#4F5D75]" data-testid="reset-button">
+                <RotateCcw className="w-3 h-3 mr-1" /> Start Over
+              </Button>
             )}
           </CardContent>
         </Card>
+
+        {/* Right: AI Plan / Results */}
+        <div className="space-y-4">
+          {step === "idle" && (
+            <Card className="border-[#E5E0DA] border-dashed" data-testid="ai-idle-card">
+              <CardContent className="py-16 text-center">
+                <Sparkles className="w-12 h-12 text-[#E5E0DA] mx-auto mb-4" strokeWidth={1.5} />
+                <p className="text-sm font-medium text-[#2D3142] mb-1">AI Workspace</p>
+                <p className="text-xs text-[#4F5D75]">Enter notes on the left and click "AI Process".<br />AI will extract all details and suggest documents to create.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === "processing" && (
+            <Card className="border-[#E07A5F]/30 bg-[#E07A5F]/5" data-testid="ai-processing-card">
+              <CardContent className="py-16 text-center">
+                <Loader2 className="w-12 h-12 text-[#E07A5F] mx-auto mb-4 animate-spin" strokeWidth={1.5} />
+                <p className="text-sm font-medium text-[#2D3142]">AI is analyzing your notes...</p>
+                <p className="text-xs text-[#4F5D75] mt-1">Extracting customer, items, delivery details</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === "planned" && aiPlan && (
+            <Card className="border-[#81B29A]/50 bg-[#81B29A]/5" data-testid="ai-plan-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-[#2D3142] flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-[#81B29A]" strokeWidth={1.5} />
+                  AI Plan Ready
+                </CardTitle>
+                {aiPlan.summary && <p className="text-xs text-[#4F5D75] mt-1">{aiPlan.summary}</p>}
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="max-h-[500px]">
+                  <div className="space-y-4">
+                    {/* Customer */}
+                    <div className="p-3 rounded-lg bg-white border border-[#E5E0DA]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <User className="w-4 h-4 text-[#D4A373]" strokeWidth={1.5} />
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Customer</span>
+                        {aiPlan.customer?.existing_id && <Badge className="bg-[#81B29A]/20 text-[#81B29A] text-[10px] border-0">Existing</Badge>}
+                        {!aiPlan.customer?.existing_id && aiPlan.customer?.name && <Badge className="bg-[#E07A5F]/20 text-[#E07A5F] text-[10px] border-0">New</Badge>}
+                      </div>
+                      <Input
+                        value={aiPlan.customer?.name || ""}
+                        onChange={e => setAiPlan({ ...aiPlan, customer: { ...aiPlan.customer, name: e.target.value } })}
+                        className="h-8 text-sm bg-[#F9F8F6] border-[#E5E0DA] font-medium"
+                        data-testid="plan-customer-name"
+                      />
+                      {aiPlan.customer?.phone && <p className="text-[10px] text-[#4F5D75] mt-1">Phone: {aiPlan.customer.phone} | City: {aiPlan.customer.city || "-"} | State: {aiPlan.customer.state || "-"}</p>}
+                    </div>
+
+                    {/* Items */}
+                    <div className="p-3 rounded-lg bg-white border border-[#E5E0DA]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Package className="w-4 h-4 text-[#D4A373]" strokeWidth={1.5} />
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Items ({(aiPlan.items || []).length})</span>
+                      </div>
+                      <div className="border border-[#E5E0DA] rounded overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-[#F4F3F0]">
+                              <TableHead className="text-[10px] font-semibold">Product</TableHead>
+                              <TableHead className="text-[10px] font-semibold w-16">Qty</TableHead>
+                              <TableHead className="text-[10px] font-semibold w-24">Rate</TableHead>
+                              <TableHead className="text-[10px] font-semibold w-16">GST%</TableHead>
+                              <TableHead className="text-[10px] font-semibold w-24 text-right">Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(aiPlan.items || []).map((it, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell>
+                                  <Input value={it.product_name} onChange={e => updatePlanItem(idx, "product_name", e.target.value)} className="h-7 text-xs bg-transparent border-0 p-0 font-medium" data-testid={`plan-item-name-${idx}`} />
+                                </TableCell>
+                                <TableCell>
+                                  <Input type="number" value={it.quantity} onChange={e => updatePlanItem(idx, "quantity", parseFloat(e.target.value) || 0)} className="h-7 text-xs bg-transparent border-0 p-0 w-14" data-testid={`plan-item-qty-${idx}`} />
+                                </TableCell>
+                                <TableCell>
+                                  <Input type="number" value={it.rate} onChange={e => updatePlanItem(idx, "rate", parseFloat(e.target.value) || 0)} className="h-7 text-xs bg-transparent border-0 p-0 w-20" data-testid={`plan-item-rate-${idx}`} />
+                                </TableCell>
+                                <TableCell className="text-xs text-[#4F5D75]">{it.gst_rate}%</TableCell>
+                                <TableCell className="text-xs font-bold text-right text-[#2D3142]">Rs. {formatCurrency((it.quantity || 0) * (it.rate || 0))}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+
+                    {/* Delivery */}
+                    {aiPlan.delivery && (aiPlan.delivery.vehicle_number || aiPlan.delivery.to_city) && (
+                      <div className="p-3 rounded-lg bg-white border border-[#E5E0DA]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Truck className="w-4 h-4 text-[#D4A373]" strokeWidth={1.5} />
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Delivery</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-[#4F5D75]">
+                          {aiPlan.delivery.vehicle_number && <p>Vehicle: <span className="font-mono font-medium text-[#2D3142]">{aiPlan.delivery.vehicle_number}</span></p>}
+                          {aiPlan.delivery.to_city && <p>To: <span className="font-medium text-[#2D3142]">{aiPlan.delivery.to_city}{aiPlan.delivery.to_state ? `, ${aiPlan.delivery.to_state}` : ""}</span></p>}
+                          {aiPlan.delivery.transport_mode && <p>Mode: {aiPlan.delivery.transport_mode}</p>}
+                          {aiPlan.delivery.distance > 0 && <p>Distance: {aiPlan.delivery.distance} km</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="p-3 rounded-lg bg-white border border-[#E5E0DA]">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Zap className="w-4 h-4 text-[#D4A373]" strokeWidth={1.5} />
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Documents to Create</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {Object.entries(ACTION_LABELS).map(([key, { label, icon: Icon, color, bg }]) => (
+                          <div
+                            key={key}
+                            className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all duration-200 ${
+                              (aiPlan.actions || []).includes(key)
+                                ? `${bg} border-current ${color} shadow-sm`
+                                : "border-[#E5E0DA] text-[#4F5D75] opacity-50"
+                            }`}
+                            onClick={() => toggleAction(key)}
+                            data-testid={`toggle-action-${key}`}
+                          >
+                            <Checkbox checked={(aiPlan.actions || []).includes(key)} className="pointer-events-none" />
+                            <Icon className="w-4 h-4" strokeWidth={1.5} />
+                            <span className="text-xs font-medium">{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Supply Type */}
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant={aiPlan.supply_type === "intra" ? "default" : "outline"}
+                        className={aiPlan.supply_type === "intra" ? "bg-[#81B29A] hover:bg-[#6fa388] text-white text-xs" : "border-[#E5E0DA] text-xs"}
+                        onClick={() => setAiPlan({ ...aiPlan, supply_type: "intra" })} data-testid="plan-supply-intra">
+                        Intra-State
+                      </Button>
+                      <Button type="button" size="sm" variant={aiPlan.supply_type === "inter" ? "default" : "outline"}
+                        className={aiPlan.supply_type === "inter" ? "bg-[#81B29A] hover:bg-[#6fa388] text-white text-xs" : "border-[#E5E0DA] text-xs"}
+                        onClick={() => setAiPlan({ ...aiPlan, supply_type: "inter" })} data-testid="plan-supply-inter">
+                        Inter-State
+                      </Button>
+                    </div>
+                  </div>
+                </ScrollArea>
+
+                <Separator className="my-4 bg-[#E5E0DA]" />
+
+                <Button
+                  onClick={handleExecute}
+                  className="w-full bg-[#E07A5F] hover:bg-[#C96D55] text-white font-medium py-3"
+                  data-testid="execute-plan-button"
+                >
+                  <Zap className="w-4 h-4 mr-2" />
+                  Execute All ({(aiPlan.actions || []).length} documents)
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === "executing" && (
+            <Card className="border-[#E07A5F]/30 bg-[#E07A5F]/5" data-testid="ai-executing-card">
+              <CardContent className="py-16 text-center">
+                <Loader2 className="w-12 h-12 text-[#E07A5F] mx-auto mb-4 animate-spin" strokeWidth={1.5} />
+                <p className="text-sm font-medium text-[#2D3142]">Creating documents...</p>
+                <p className="text-xs text-[#4F5D75] mt-1">Invoice, Challan, E-Way Bill in progress</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === "done" && results && (
+            <Card className="border-[#81B29A]/50 bg-[#81B29A]/5" data-testid="ai-results-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-[#2D3142] flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-[#81B29A]" strokeWidth={1.5} />
+                  All Done!
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(results.created || []).map((item, i) => {
+                  const actionInfo = ACTION_LABELS[item.type] || {};
+                  const Icon = actionInfo.icon || CheckCircle2;
+                  return (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-white border border-[#E5E0DA] animate-row" style={{ animationDelay: `${i * 100}ms` }} data-testid={`result-item-${i}`}>
+                      <div className={`p-2 rounded-lg ${actionInfo.bg || 'bg-[#81B29A]/10'}`}>
+                        <Icon className={`w-4 h-4 ${actionInfo.color || 'text-[#81B29A]'}`} strokeWidth={1.5} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-[#2D3142] capitalize">{item.type.replace(/_/g, " ")}</p>
+                        <p className="text-xs text-[#4F5D75]">{item.number || item.name}{item.total ? ` - Rs. ${formatCurrency(item.total)}` : ""}</p>
+                      </div>
+                      <CheckCircle2 className="w-5 h-5 text-[#81B29A]" strokeWidth={1.5} />
+                    </div>
+                  );
+                })}
+                {results.errors?.length > 0 && results.errors.map((err, i) => (
+                  <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-red-50 text-sm text-red-700">
+                    <AlertCircle className="w-4 h-4" /> {err}
+                  </div>
+                ))}
+                <Separator className="my-3" />
+                <div className="flex gap-2">
+                  <Button onClick={handleReset} className="bg-[#81B29A] hover:bg-[#6fa388] text-white flex-1" data-testid="new-task-button">
+                    <Sparkles className="w-4 h-4 mr-2" /> New Task
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
 
-      {/* Notes List */}
+      {/* Notes History */}
       <div>
-        <h2 className="text-lg font-semibold text-[#2D3142] mb-4" style={{ fontFamily: 'Manrope, sans-serif' }}>
-          All Notes ({notes.length})
+        <h2 className="text-lg font-semibold text-[#2D3142] mb-4 flex items-center gap-2" style={{ fontFamily: 'Manrope, sans-serif' }}>
+          <MessageCircle className="w-5 h-5 text-[#4F5D75]" strokeWidth={1.5} />
+          Notes History ({notes.length})
         </h2>
         {notes.length === 0 ? (
           <Card className="border-[#E5E0DA]">
-            <CardContent className="py-12 text-center">
-              <FileText className="w-12 h-12 text-[#E5E0DA] mx-auto mb-3" strokeWidth={1.5} />
-              <p className="text-sm text-[#4F5D75]">No notes yet. Start by adding one above.</p>
+            <CardContent className="py-8 text-center">
+              <FileText className="w-10 h-10 text-[#E5E0DA] mx-auto mb-2" strokeWidth={1.5} />
+              <p className="text-sm text-[#4F5D75]">No notes yet. Start by entering instructions above.</p>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {notes.map((note, i) => (
-              <Card
-                key={note.id}
-                className="border-[#E5E0DA] hover:shadow-md hover:-translate-y-1 transition-all duration-300 animate-row"
-                style={{ animationDelay: `${i * 60}ms` }}
-                data-testid={`note-card-${note.id}`}
-              >
+              <Card key={note.id} className="border-[#E5E0DA] hover:shadow-md transition-all duration-300 animate-row" style={{ animationDelay: `${i * 40}ms` }}>
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <Badge className={`text-[10px] font-bold rounded-full px-2 py-0.5 border-0 ${note.source === 'ocr' ? 'bg-[#81B29A]/20 text-[#81B29A]' : 'bg-[#D4A373]/20 text-[#D4A373]'}`}>
-                        {note.source === 'ocr' ? 'OCR' : 'MANUAL'}
+                      <Badge className={`text-[10px] font-bold rounded-full px-2 py-0.5 border-0 ${
+                        note.source === 'ai' ? 'bg-[#E07A5F]/20 text-[#E07A5F]' :
+                        note.source === 'ocr' ? 'bg-[#81B29A]/20 text-[#81B29A]' :
+                        'bg-[#D4A373]/20 text-[#D4A373]'
+                      }`}>
+                        {note.source === 'ai' ? 'AI' : note.source === 'ocr' ? 'OCR' : 'MANUAL'}
                       </Badge>
                       <span className="text-[10px] text-[#4F5D75]">{formatDate(note.created_at)}</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-[#4F5D75] hover:text-red-600"
-                      onClick={() => handleDelete(note.id)}
-                      data-testid={`delete-note-${note.id}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-[#4F5D75] hover:text-red-600" onClick={() => handleDelete(note.id)} data-testid={`delete-note-${note.id}`}>
+                      <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
-                  <p className="text-sm text-[#2D3142] whitespace-pre-wrap leading-relaxed">{note.content}</p>
-                  {note.filename && <p className="text-[10px] text-[#4F5D75] mt-2">Source: {note.filename}</p>}
+                  <p className="text-xs text-[#2D3142] whitespace-pre-wrap leading-relaxed line-clamp-4">{note.content}</p>
                 </CardContent>
               </Card>
             ))}
