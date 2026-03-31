@@ -2,31 +2,28 @@ import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
 import { formatCurrency } from "@/utils/helpers";
 
-// Style variations - picked based on estimate ID hash
 const STYLES = [
-  { headerBg: "#D9E2F3", borderColor: "#B4C6E7", font: "Calibri, sans-serif", headerLabels: ["Sr No", "Particulars", "Amount"], totalLabel: "Total", numStyle: "num" },
-  { headerBg: "#F3F3F3", borderColor: "#DADADA", font: "Arial, sans-serif", headerLabels: ["#", "Description", "Value (Rs.)"], totalLabel: "Grand Total", numStyle: "alpha" },
-  { headerBg: "#E2EFDA", borderColor: "#A9D18E", font: "Segoe UI, sans-serif", headerLabels: ["S.No", "Item Details", "Cost"], totalLabel: "Net Amount", numStyle: "padded" },
-  { headerBg: "#FCE4D6", borderColor: "#F4B183", font: "Verdana, sans-serif", headerLabels: ["No.", "Details", "Amt."], totalLabel: "Sum Total", numStyle: "roman" },
-  { headerBg: "#D6DCE4", borderColor: "#9DA5B0", font: "Tahoma, sans-serif", headerLabels: ["Sl", "Line Item", "Rate (Rs.)"], totalLabel: "TOTAL", numStyle: "dash" },
+  { headerBg: "#D9E2F3", borderColor: "#8DB4E2", font: "Calibri, sans-serif", colA: "A", colB: "B", colC: "C", colD: "D", totalLabel: "Total", numStyle: "num" },
+  { headerBg: "#E2EFDA", borderColor: "#A9D18E", font: "Arial, sans-serif", colA: "A", colB: "B", colC: "C", colD: "D", totalLabel: "Grand Total", numStyle: "padded" },
+  { headerBg: "#FCE4D6", borderColor: "#F4B183", font: "Segoe UI, sans-serif", colA: "A", colB: "B", colC: "C", colD: "D", totalLabel: "Net Total", numStyle: "alpha" },
+  { headerBg: "#D6DCE4", borderColor: "#9DA5B0", font: "Verdana, sans-serif", colA: "A", colB: "B", colC: "C", colD: "D", totalLabel: "TOTAL", numStyle: "dash" },
+  { headerBg: "#DDEBF7", borderColor: "#5B9BD5", font: "Tahoma, sans-serif", colA: "A", colB: "B", colC: "C", colD: "D", totalLabel: "Sum", numStyle: "roman" },
 ];
 
 const DATE_FORMATS = [
   (d) => { const p = d.split("-"); return `${p[2]}/${p[1]}/${p[0]}`; },
   (d) => { const p = d.split("-"); return `${p[2]}-${p[1]}-${p[0]}`; },
   (d) => { const dt = new Date(d); const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${dt.getDate()} ${m[dt.getMonth()]} ${dt.getFullYear()}`; },
-  (d) => { const dt = new Date(d); const m = ["January","February","March","April","May","June","July","August","September","October","November","December"]; return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()}`; },
   (d) => { const p = d.split("-"); return `${p[2]}.${p[1]}.${p[0]}`; },
+  (d) => { const dt = new Date(d); const m = ["January","February","March","April","May","June","July","August","September","October","November","December"]; return `${m[dt.getMonth()]} ${dt.getDate()}, ${dt.getFullYear()}`; },
 ];
 
-const PAX_LABELS = ["PAX", "No. of Persons", "Heads", "Pax Count", "Attendees"];
-const FOR_LABELS = ["Re", "Subject", "For", "Regarding", "Event"];
-const NOTE_LINES = [
-  ["* Taxes extra as applicable", "* Subject to final confirmation"],
-  ["* GST additional", "* Rates may vary"],
-  ["* Plus applicable taxes", "* Terms subject to discussion"],
-  ["* Tax not included", "* Valid for 7 days"],
-  ["* Exclusive of GST", "* Approximate figures"],
+const FOOTER_NOTES = [
+  ["Taxes extra as applicable", "Subject to final confirmation"],
+  ["GST additional", "Rates may vary"],
+  ["Plus applicable taxes", "Terms subject to discussion"],
+  ["Tax not included", "Valid for 7 days"],
+  ["Exclusive of GST", "Approximate figures"],
 ];
 
 function hashCode(str) {
@@ -47,30 +44,43 @@ function getRowNum(idx, style) {
 export default function RawEstimate({ data, onClose }) {
   const { customer, items, total, estimate_number, date, pax, subject } = data;
   const seed = hashCode(estimate_number || "est");
-  const style = STYLES[seed % STYLES.length];
+  const s = STYLES[seed % STYLES.length];
   const dateFmt = DATE_FORMATS[seed % DATE_FORMATS.length];
-  const paxLabel = PAX_LABELS[seed % PAX_LABELS.length];
-  const forLabel = FOR_LABELS[seed % FOR_LABELS.length];
-  const noteLines = NOTE_LINES[seed % NOTE_LINES.length];
-
+  const notes = FOOTER_NOTES[seed % FOOTER_NOTES.length];
   const formattedDate = date ? dateFmt(date) : "-";
-  const calcTotal = (items || []).reduce((s, it) => s + (it.taxable_amount || (it.quantity || 1) * (it.rate || 0)), 0);
+  const calcTotal = (items || []).reduce((sum, it) => sum + (it.taxable_amount || (it.quantity || 1) * (it.rate || 0)), 0);
+  const finalTotal = total || calcTotal;
+
+  const cell = { border: `1px solid ${s.borderColor}`, padding: '6px 10px', fontSize: '12px', verticalAlign: 'middle' };
+  const hCell = { ...cell, background: s.headerBg, fontWeight: 700, fontSize: '11px', textAlign: 'center', color: '#333' };
+  const colHead = { ...cell, background: '#F2F2F2', fontWeight: 600, fontSize: '10px', textAlign: 'center', color: '#666', padding: '3px 10px' };
+
+  // Build all rows for full spreadsheet
+  const metaRows = [];
+  metaRows.push({ a: "Date", b: formattedDate });
+  metaRows.push({ a: "To", b: `${customer?.name || "-"}${customer?.city ? ", " + customer.city : ""}` });
+  if (subject) metaRows.push({ a: "Subject", b: subject });
+  if (pax > 0) metaRows.push({ a: "PAX", b: String(pax) });
+  metaRows.push({ a: "", b: "" }); // blank row separator
+
+  const itemRows = (items || []).map((it, i) => ({
+    num: getRowNum(i, s.numStyle),
+    desc: it.product_name + (it.description ? ` - ${it.description}` : ""),
+    amt: it.taxable_amount || (it.quantity || 1) * (it.rate || 0)
+  }));
+
+  // Row counter starting from 1
+  let rowNum = 1;
 
   const handlePrint = () => {
     const pw = window.open("", "_blank");
     pw.document.write(`<html><head><title>${estimate_number}</title>
       <style>
-        body { font-family: ${style.font}; margin: 25px; color: #222; font-size: 12px; }
+        body { font-family: ${s.font}; margin: 0; padding: 0; color: #222; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid ${style.borderColor}; padding: 7px 10px; }
-        th { background: ${style.headerBg}; font-weight: 600; font-size: 11px; }
-        .r { text-align: right; }
-        .total td { font-weight: 700; background: ${style.headerBg}; }
-        .meta { margin-bottom: 15px; font-size: 12px; }
-        .meta td { border: none; padding: 2px 8px; }
-        .note { margin-top: 12px; font-size: 10px; color: #888; }
-        @media print { body { margin: 15px; } }
-      </style></head><body>${document.getElementById("spreadsheet-estimate")?.innerHTML || ""}</body></html>`);
+        td, th { border: 1px solid ${s.borderColor}; }
+        @media print { body { margin: 0; } @page { margin: 8mm; } }
+      </style></head><body>${document.getElementById("sheet-estimate")?.innerHTML || ""}</body></html>`);
     pw.document.close();
     pw.print();
   };
@@ -87,95 +97,113 @@ export default function RawEstimate({ data, onClose }) {
         </div>
       </div>
 
-      <div id="spreadsheet-estimate" className="bg-white border border-[#ccc] rounded" style={{ fontFamily: style.font, color: '#222', fontSize: '12px' }}>
-        {/* Spreadsheet-style header bar */}
-        <div style={{ background: '#F0F0F0', borderBottom: `1px solid ${style.borderColor}`, padding: '4px 10px', fontSize: '10px', color: '#666', display: 'flex', justifyContent: 'space-between' }}>
-          <span>{estimate_number}</span>
-          <span>{formattedDate}</span>
-        </div>
+      <div id="sheet-estimate" style={{ fontFamily: s.font, color: '#222', fontSize: '12px', background: '#fff' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          {/* Column letter headers like Excel: blank | A | B | C */}
+          <thead>
+            <tr>
+              <td style={{ ...colHead, width: '40px', background: '#E8E8E8' }}></td>
+              <td style={{ ...colHead, width: '120px' }}>{s.colA}</td>
+              <td style={{ ...colHead }}>{s.colB}</td>
+              <td style={{ ...colHead, width: '150px' }}>{s.colC}</td>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Meta rows: Date, To, Subject, PAX */}
+            {metaRows.map((row, i) => {
+              const rn = rowNum++;
+              return (
+                <tr key={`meta-${i}`}>
+                  <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888', width: '40px' }}>{rn}</td>
+                  <td style={{ ...cell, fontWeight: row.a ? 600 : 400, color: row.a ? '#333' : '#ccc' }}>{row.a || ""}</td>
+                  <td style={{ ...cell }}>{row.b || ""}</td>
+                  <td style={{ ...cell }}></td>
+                </tr>
+              );
+            })}
 
-        <div style={{ padding: '16px' }}>
-          {/* Meta info as simple cells */}
-          <table style={{ width: '50%', marginBottom: '14px', borderCollapse: 'collapse' }}>
-            <tbody>
-              <tr>
-                <td style={{ border: 'none', padding: '2px 0', fontWeight: 600, width: '80px', fontSize: '11px', color: '#555' }}>Date</td>
-                <td style={{ border: 'none', padding: '2px 8px', fontSize: '12px' }}>{formattedDate}</td>
+            {/* Table header row */}
+            {(() => { const rn = rowNum++; return (
+              <tr key="item-header">
+                <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                <td style={{ ...hCell }}>Sr</td>
+                <td style={{ ...hCell, textAlign: 'left' }}>Description</td>
+                <td style={{ ...hCell, textAlign: 'right' }}>Amount</td>
               </tr>
-              <tr>
-                <td style={{ border: 'none', padding: '2px 0', fontWeight: 600, fontSize: '11px', color: '#555' }}>To</td>
-                <td style={{ border: 'none', padding: '2px 8px', fontSize: '12px' }}>{customer?.name || "-"}{customer?.city ? `, ${customer.city}` : ""}</td>
-              </tr>
-              {subject && (
-                <tr>
-                  <td style={{ border: 'none', padding: '2px 0', fontWeight: 600, fontSize: '11px', color: '#555' }}>{forLabel}</td>
-                  <td style={{ border: 'none', padding: '2px 8px', fontSize: '12px' }}>{subject}</td>
-                </tr>
-              )}
-              {pax > 0 && (
-                <tr>
-                  <td style={{ border: 'none', padding: '2px 0', fontWeight: 600, fontSize: '11px', color: '#555' }}>{paxLabel}</td>
-                  <td style={{ border: 'none', padding: '2px 8px', fontSize: '12px' }}>{pax}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            );})()}
 
-          {/* Main spreadsheet table */}
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px', textAlign: 'center', fontWeight: 600, fontSize: '11px', width: '50px' }}>
-                  {style.headerLabels[0]}
-                </th>
-                <th style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px', textAlign: 'left', fontWeight: 600, fontSize: '11px' }}>
-                  {style.headerLabels[1]}
-                </th>
-                <th style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontSize: '11px', width: '140px' }}>
-                  {style.headerLabels[2]}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(items || []).map((it, i) => (
-                <tr key={i}>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px', textAlign: 'center', fontSize: '12px', color: '#555' }}>
-                    {getRowNum(i, style.numStyle)}
-                  </td>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px', fontSize: '12px' }}>
-                    {it.product_name}{it.description ? ` - ${it.description}` : ""}
-                  </td>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px', textAlign: 'right', fontSize: '12px', fontFamily: 'Consolas, monospace' }}>
-                    {formatCurrency(it.taxable_amount || (it.quantity || 1) * (it.rate || 0))}
-                  </td>
+            {/* Item rows */}
+            {itemRows.map((row, i) => {
+              const rn = rowNum++;
+              return (
+                <tr key={`item-${i}`}>
+                  <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                  <td style={{ ...cell, textAlign: 'center', color: '#555' }}>{row.num}</td>
+                  <td style={{ ...cell }}>{row.desc}</td>
+                  <td style={{ ...cell, textAlign: 'right', fontFamily: 'Consolas, "Courier New", monospace' }}>{formatCurrency(row.amt)}</td>
                 </tr>
-              ))}
-              {/* Empty rows for spreadsheet feel */}
-              {Array.from({ length: Math.max(0, 3 - (items || []).length) }).map((_, i) => (
+              );
+            })}
+
+            {/* Empty rows for spreadsheet feel */}
+            {Array.from({ length: Math.max(0, 2 - itemRows.length) }).map((_, i) => {
+              const rn = rowNum++;
+              return (
                 <tr key={`empty-${i}`}>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px', color: '#ccc', textAlign: 'center', fontSize: '12px' }}>&nbsp;</td>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px' }}>&nbsp;</td>
-                  <td style={{ border: `1px solid ${style.borderColor}`, padding: '7px 10px' }}>&nbsp;</td>
+                  <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                  <td style={{ ...cell, color: '#eee' }}>&nbsp;</td>
+                  <td style={{ ...cell }}>&nbsp;</td>
+                  <td style={{ ...cell }}>&nbsp;</td>
                 </tr>
-              ))}
-              {/* Total row */}
-              <tr>
-                <td style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px' }}></td>
-                <td style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px', fontWeight: 700, fontSize: '12px', textAlign: 'right' }}>
-                  {style.totalLabel}
-                </td>
-                <td style={{ border: `1px solid ${style.borderColor}`, background: style.headerBg, padding: '8px 10px', fontWeight: 700, fontSize: '13px', textAlign: 'right', fontFamily: 'Consolas, monospace' }}>
-                  {formatCurrency(total || calcTotal)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              );
+            })}
 
-          {/* Notes - small, generic */}
-          <div style={{ marginTop: '12px', fontSize: '10px', color: '#999' }}>
-            {noteLines.map((line, i) => <p key={i} style={{ margin: '1px 0' }}>{line}</p>)}
-          </div>
-        </div>
+            {/* Total row */}
+            {(() => { const rn = rowNum++; return (
+              <tr key="total">
+                <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                <td style={{ ...cell, background: s.headerBg }}></td>
+                <td style={{ ...cell, background: s.headerBg, fontWeight: 700, textAlign: 'right', fontSize: '12px' }}>{s.totalLabel}</td>
+                <td style={{ ...cell, background: s.headerBg, fontWeight: 700, textAlign: 'right', fontSize: '13px', fontFamily: 'Consolas, "Courier New", monospace' }}>{formatCurrency(finalTotal)}</td>
+              </tr>
+            );})()}
+
+            {/* Blank row */}
+            {(() => { const rn = rowNum++; return (
+              <tr key="blank">
+                <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                <td style={{ ...cell }}></td>
+                <td style={{ ...cell }}></td>
+                <td style={{ ...cell }}></td>
+              </tr>
+            );})()}
+
+            {/* Note rows */}
+            {notes.map((note, i) => {
+              const rn = rowNum++;
+              return (
+                <tr key={`note-${i}`}>
+                  <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#888' }}>{rn}</td>
+                  <td style={{ ...cell, fontSize: '10px', color: '#999' }}>*</td>
+                  <td style={{ ...cell, fontSize: '10px', color: '#999', fontStyle: 'italic' }} colSpan={2}>{note}</td>
+                </tr>
+              );
+            })}
+
+            {/* Trailing empty rows */}
+            {[0, 1, 2].map((i) => {
+              const rn = rowNum++;
+              return (
+                <tr key={`trail-${i}`}>
+                  <td style={{ ...cell, background: '#F2F2F2', textAlign: 'center', fontWeight: 600, fontSize: '10px', color: '#ccc' }}>{rn}</td>
+                  <td style={{ ...cell }}>&nbsp;</td>
+                  <td style={{ ...cell }}>&nbsp;</td>
+                  <td style={{ ...cell }}>&nbsp;</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
