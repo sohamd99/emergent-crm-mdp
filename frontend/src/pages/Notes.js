@@ -16,6 +16,7 @@ import {
   ArrowRight, Zap, MessageCircle, AlertCircle, RotateCcw, Mic, MicOff, Languages
 } from "lucide-react";
 import { toast } from "sonner";
+import SearchSelect from "@/components/SearchSelect";
 import { formatDate, formatCurrency } from "@/utils/helpers";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -49,10 +50,14 @@ export default function Notes() {
 
   const fetchNotes = () => axios.get(`${API}/notes`).then(r => setNotes(r.data)).catch(() => {});
   const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [allCustomers, setAllCustomers] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
 
   useEffect(() => {
     fetchNotes();
     axios.get(`${API}/settings`).then(r => setWhatsappNumber(r.data?.whatsapp_number || "")).catch(() => {});
+    axios.get(`${API}/customers`).then(r => setAllCustomers(r.data)).catch(() => {});
+    axios.get(`${API}/products`).then(r => setAllProducts(r.data)).catch(() => {});
   }, []);
 
   // AI Process
@@ -423,11 +428,13 @@ export default function Notes() {
                         {aiPlan.customer?.existing_id && <Badge className="bg-[#81B29A]/20 text-[#81B29A] text-[10px] border-0">Existing</Badge>}
                         {!aiPlan.customer?.existing_id && aiPlan.customer?.name && <Badge className="bg-[#E07A5F]/20 text-[#E07A5F] text-[10px] border-0">New</Badge>}
                       </div>
-                      <Input
-                        value={aiPlan.customer?.name || ""}
-                        onChange={e => setAiPlan({ ...aiPlan, customer: { ...aiPlan.customer, name: e.target.value } })}
-                        className="h-8 text-sm bg-[#F9F8F6] border-[#E5E0DA] font-medium"
-                        data-testid="plan-customer-name"
+                      <SearchSelect
+                        value={aiPlan.customer?.existing_id || ""}
+                        displayValue={aiPlan.customer?.name || ""}
+                        options={allCustomers}
+                        placeholder="Search customer (3+ chars)..."
+                        minChars={3}
+                        onSelect={(c) => setAiPlan({ ...aiPlan, customer: { ...aiPlan.customer, existing_id: c.id, name: c.name, phone: c.phone || "", city: c.city || "", state: c.state || "" } })}
                       />
                       {aiPlan.customer?.phone && <p className="text-[10px] text-[#4F5D75] mt-1">Phone: {aiPlan.customer.phone} | City: {aiPlan.customer.city || "-"} | State: {aiPlan.customer.state || "-"}</p>}
                     </div>

@@ -62,6 +62,7 @@ export default function Products() {
           <Table>
             <TableHeader>
               <TableRow className="bg-[#F4F3F0]">
+                <TableHead className="font-semibold text-[#2D3142]">SKU</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">Name</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">HSN Code</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">Unit</TableHead>
@@ -73,6 +74,7 @@ export default function Products() {
             <TableBody>
               {products.map((p, i) => (
                 <TableRow key={p.id} className="animate-row" style={{ animationDelay: `${i * 40}ms` }}>
+                  <TableCell className="text-[#D4A373] font-mono text-xs font-bold">{p.sku || "-"}</TableCell>
                   <TableCell className="font-medium text-[#2D3142]">{p.name}</TableCell>
                   <TableCell className="text-[#4F5D75] font-mono text-xs">{p.hsn_code || "-"}</TableCell>
                   <TableCell className="text-[#4F5D75]">{p.unit}</TableCell>

@@ -14,6 +14,7 @@ import { Plus, Trash2, FileSpreadsheet, Eye, Package } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDate, getStatusColor } from "@/utils/helpers";
 import RawEstimate from "@/pages/RawEstimate";
+import SearchSelect from "@/components/SearchSelect";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const emptyItem = { product_name: "Event Cost", description: "", hsn_code: "", quantity: 1, unit: "NOS", rate: 0, gst_rate: 0 };
@@ -112,7 +113,7 @@ export default function Estimates() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Customer *</Label>
-                  <Select value={form.customer_id} onValueChange={v => setForm({ ...form, customer_id: v })}><SelectTrigger className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" data-testid="estimate-customer-select"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
+                  <SearchSelect value={form.customer_id} displayValue={customers.find(c=>c.id===form.customer_id)?.name||""} options={customers} placeholder="Search customer (3+ chars)..." minChars={3} onSelect={(c)=>setForm({...form,customer_id:c.id})} /></div>
                 <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

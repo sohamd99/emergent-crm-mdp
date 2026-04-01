@@ -60,6 +60,7 @@ export default function Customers() {
           <Table>
             <TableHeader>
               <TableRow className="bg-[#F4F3F0]">
+                <TableHead className="font-semibold text-[#2D3142]">Code</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">Name</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">Phone</TableHead>
                 <TableHead className="font-semibold text-[#2D3142] hidden md:table-cell">GSTIN</TableHead>
@@ -71,6 +72,7 @@ export default function Customers() {
             <TableBody>
               {customers.map((c, i) => (
                 <TableRow key={c.id} className="animate-row" style={{ animationDelay: `${i * 40}ms` }}>
+                  <TableCell className="text-[#D4A373] font-mono text-xs font-bold">{c.customer_code || "-"}</TableCell>
                   <TableCell className="font-medium text-[#2D3142]">{c.name}</TableCell>
                   <TableCell className="text-[#4F5D75]">{c.phone || "-"}</TableCell>
                   <TableCell className="text-[#4F5D75] hidden md:table-cell font-mono text-xs">{c.gstin || "-"}</TableCell>

@@ -14,6 +14,7 @@ import { Plus, Trash2, Receipt, Eye, Search, Package } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDate, getStatusColor } from "@/utils/helpers";
 import InvoicePreview from "@/pages/InvoicePreview";
+import SearchSelect from "@/components/SearchSelect";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -179,10 +180,14 @@ export default function Invoices() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="sm:col-span-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Customer *</Label>
-                  <Select value={form.customer_id} onValueChange={v => setForm({ ...form, customer_id: v })}>
-                    <SelectTrigger className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" data-testid="invoice-customer-select"><SelectValue placeholder="Select customer" /></SelectTrigger>
-                    <SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name} {c.gstin ? `(${c.gstin})` : ''}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <SearchSelect
+                    value={form.customer_id}
+                    displayValue={customers.find(c => c.id === form.customer_id)?.name || ""}
+                    options={customers}
+                    placeholder="Search customer (3+ chars)..."
+                    minChars={3}
+                    onSelect={(c) => setForm({ ...form, customer_id: c.id })}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Invoice Date</Label>

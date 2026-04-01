@@ -242,9 +242,18 @@ async def get_customer(cid: str):
 
 @api_router.post("/customers")
 async def create_customer(data: CustomerCreate):
-    doc = {"id": str(uuid.uuid4()), **data.model_dump(), "created_at": datetime.now(timezone.utc).isoformat()}
+    code = await get_next_number("customer", "C")
+    doc = {"id": str(uuid.uuid4()), "customer_code": code, **data.model_dump(), "created_at": datetime.now(timezone.utc).isoformat()}
     await db.customers.insert_one(doc)
     return clean(doc)
+
+@api_router.get("/customers/search")
+async def search_customers(q: str = Query("", min_length=1)):
+    if len(q) < 2:
+        return []
+    regex = {"$regex": q, "$options": "i"}
+    results = await db.customers.find({"$or": [{"name": regex}, {"phone": regex}, {"customer_code": regex}, {"gstin": regex}, {"city": regex}]}, {"_id": 0}).limit(20).to_list(20)
+    return results
 
 @api_router.put("/customers/{cid}")
 async def update_customer(cid: str, data: CustomerCreate):
@@ -263,9 +272,18 @@ async def get_products():
 
 @api_router.post("/products")
 async def create_product(data: ProductCreate):
-    doc = {"id": str(uuid.uuid4()), **data.model_dump(), "created_at": datetime.now(timezone.utc).isoformat()}
+    sku = await get_next_number("product", "SKU")
+    doc = {"id": str(uuid.uuid4()), "sku": sku, **data.model_dump(), "created_at": datetime.now(timezone.utc).isoformat()}
     await db.products.insert_one(doc)
     return clean(doc)
+
+@api_router.get("/products/search")
+async def search_products(q: str = Query("", min_length=1)):
+    if len(q) < 2:
+        return []
+    regex = {"$regex": q, "$options": "i"}
+    results = await db.products.find({"$or": [{"name": regex}, {"sku": regex}, {"hsn_code": regex}]}, {"_id": 0}).limit(20).to_list(20)
+    return results
 
 @api_router.put("/products/{pid}")
 async def update_product(pid: str, data: ProductCreate):
@@ -726,11 +744,19 @@ async def execute_ai_plan(plan: dict = Body(...)):
     if not customer_id:
         cdata = plan.get("customer", {})
         if cdata.get("name"):
-            doc = {"id": str(uuid.uuid4()), **{k: cdata.get(k, "") for k in ["name","email","phone","gstin","address","city","state","state_code","pincode"]}, "created_at": datetime.now(timezone.utc).isoformat()}
-            await db.customers.insert_one(doc)
-            customer_id = doc["id"]
-            results["created"].append({"type": "customer", "name": cdata["name"], "id": customer_id})
-            await mock_whatsapp("ai_customer", "customer", customer_id, f"AI created customer: {cdata['name']}")
+            # Search existing customers by name before creating
+            regex = {"$regex": cdata["name"], "$options": "i"}
+            existing = await db.customers.find_one({"$or": [{"name": regex}, {"phone": cdata.get("phone", "NOMATCH")}]}, {"_id": 0})
+            if existing:
+                customer_id = existing["id"]
+                results["created"].append({"type": "customer_matched", "name": existing["name"], "id": customer_id})
+            else:
+                code = await get_next_number("customer", "C")
+                doc = {"id": str(uuid.uuid4()), "customer_code": code, **{k: cdata.get(k, "") for k in ["name","email","phone","gstin","address","city","state","state_code","pincode"]}, "created_at": datetime.now(timezone.utc).isoformat()}
+                await db.customers.insert_one(doc)
+                customer_id = doc["id"]
+                results["created"].append({"type": "customer", "name": cdata["name"], "id": customer_id})
+                await mock_whatsapp("ai_customer", "customer", customer_id, f"AI created customer: {cdata['name']}")
 
     if not customer_id:
         return {"error": "No customer identified in the plan", "results": results}
@@ -739,10 +765,15 @@ async def execute_ai_plan(plan: dict = Body(...)):
     items_for_doc = []
     for item in plan.get("items", []):
         if not item.get("existing_id") and item.get("product_name"):
-            prod = {"id": str(uuid.uuid4()), "name": item["product_name"], "hsn_code": item.get("hsn_code",""), "unit": item.get("unit","NOS"),
-                     "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18)), "description": item.get("description",""), "created_at": datetime.now(timezone.utc).isoformat()}
-            await db.products.insert_one(prod)
-            results["created"].append({"type": "product", "name": item["product_name"]})
+            # Search existing products by name before creating
+            regex = {"$regex": item["product_name"], "$options": "i"}
+            existing_prod = await db.products.find_one({"name": regex}, {"_id": 0})
+            if not existing_prod:
+                sku = await get_next_number("product", "SKU")
+                prod = {"id": str(uuid.uuid4()), "sku": sku, "name": item["product_name"], "hsn_code": item.get("hsn_code",""), "unit": item.get("unit","NOS"),
+                         "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18)), "description": item.get("description",""), "created_at": datetime.now(timezone.utc).isoformat()}
+                await db.products.insert_one(prod)
+                results["created"].append({"type": "product", "name": item["product_name"]})
 
         items_for_doc.append({
             "product_name": item.get("product_name",""), "description": item.get("description",""),
