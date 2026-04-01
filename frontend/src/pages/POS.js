@@ -87,11 +87,9 @@ export default function POS() {
 
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return toast.error("Cart is empty");
-    if (paymentMethod === "upi") {
-      toast.info("Razorpay will be connected after deployment. Order saved as UPI Pending.");
-    }
     setProcessing(true);
     try {
+      // Create POS order first
       const payload = {
         customer_id: selectedCustomer?.id || "",
         customer_name: selectedCustomer?.name || "Shop Order",
@@ -100,13 +98,72 @@ export default function POS() {
         tax: Math.round(tax),
         total: grandTotal,
         payment_method: paymentMethod === "cash" ? `Cash - ${cashType === "paid" ? "Paid" : "COD"}` : "UPI - Razorpay",
-        payment_status: paymentMethod === "upi" ? "pending" : (cashType === "paid" ? "paid" : "cod"),
+        payment_status: paymentMethod === "cash" ? (cashType === "paid" ? "paid" : "cod") : "pending",
       };
-      const res = await axios.post(`${API}/pos/orders`, payload);
-      setOrderComplete(res.data);
-      toast("WhatsApp Alert", { description: `POS Order ${res.data.order_number} - Rs.${formatCurrency(grandTotal)}`, className: "whatsapp-toast" });
+      const orderRes = await axios.post(`${API}/pos/orders`, payload);
+      const posOrder = orderRes.data;
+
+      if (paymentMethod === "upi") {
+        // Razorpay UPI checkout
+        try {
+          const rzRes = await axios.post(`${API}/pos/razorpay/create-order`, { amount: grandTotal });
+          const { order_id, key_id, amount } = rzRes.data;
+
+          const options = {
+            key: key_id,
+            amount: amount,
+            currency: "INR",
+            name: "BillFlow POS",
+            description: `Order ${posOrder.order_number}`,
+            order_id: order_id,
+            handler: async (response) => {
+              // Verify payment
+              try {
+                await axios.post(`${API}/pos/razorpay/verify`, {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  pos_order_id: posOrder.id,
+                  amount: amount,
+                });
+                setOrderComplete({ ...posOrder, payment_status: "paid", payment_method: "UPI - Razorpay (Paid)" });
+                toast("WhatsApp Alert", { description: `Payment received for ${posOrder.order_number} - Rs.${formatCurrency(grandTotal)}`, className: "whatsapp-toast" });
+              } catch {
+                setOrderComplete({ ...posOrder, payment_status: "verification_failed" });
+                toast.error("Payment verification failed");
+              }
+              setProcessing(false);
+            },
+            prefill: {
+              name: selectedCustomer?.name || "Customer",
+              contact: selectedCustomer?.phone || "",
+            },
+            theme: { color: "#E07A5F" },
+            modal: {
+              ondismiss: () => {
+                setProcessing(false);
+                toast.info("Payment cancelled. Order saved as pending.");
+                setOrderComplete({ ...posOrder, payment_status: "pending", payment_method: "UPI - Razorpay (Pending)" });
+              }
+            }
+          };
+
+          const rzp = new window.Razorpay(options);
+          rzp.open();
+          return; // Don't set processing=false here, handler will do it
+        } catch (e) {
+          toast.error("Razorpay failed to open. Order saved as pending.");
+          setOrderComplete({ ...posOrder, payment_status: "pending" });
+          setProcessing(false);
+          return;
+        }
+      }
+
+      // Cash order - complete immediately
+      setOrderComplete(posOrder);
+      toast("WhatsApp Alert", { description: `POS Order ${posOrder.order_number} - Rs.${formatCurrency(grandTotal)}`, className: "whatsapp-toast" });
     } catch { toast.error("Order failed"); }
-    finally { setProcessing(false); }
+    finally { if (paymentMethod !== "upi") setProcessing(false); }
   };
 
   const resetOrder = () => {
@@ -325,8 +382,8 @@ export default function POS() {
                 </div>
               )}
               {paymentMethod === "upi" && (
-                <div className="mt-2 p-2 rounded bg-[#E07A5F]/10 text-[10px] text-[#E07A5F] text-center">
-                  Razorpay gateway — connect after deployment
+                <div className="mt-2 p-2 rounded bg-[#E07A5F]/10 text-[10px] text-[#E07A5F] text-center font-medium">
+                  Razorpay UPI — secure checkout will open on Place Order
                 </div>
               )}
             </div>

@@ -560,11 +560,48 @@ async def create_pos_order(data: POSOrderCreate):
         "customer_id": data.customer_id, "customer_name": data.customer_name,
         "items": data.items, "subtotal": data.subtotal, "tax": data.tax, "total": data.total,
         "payment_method": data.payment_method, "payment_status": data.payment_status,
+        "razorpay_order_id": "", "razorpay_payment_id": "",
         "notes": data.notes, "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.pos_orders.insert_one(doc)
     await mock_whatsapp("pos_order", "pos", doc["id"], f"POS Order {num} - Rs.{data.total} ({data.payment_method})")
     return clean(doc)
+
+@api_router.post("/pos/razorpay/create-order")
+async def razorpay_create_order(data: dict = Body(...)):
+    import razorpay as rzp
+    client_rz = rzp.Client(auth=(os.environ.get("RAZORPAY_KEY_ID"), os.environ.get("RAZORPAY_KEY_SECRET")))
+    amount_paise = int(float(data.get("amount", 0)) * 100)
+    if amount_paise < 100:
+        raise HTTPException(400, "Amount must be at least Rs.1")
+    order = client_rz.order.create({
+        "amount": amount_paise,
+        "currency": "INR",
+        "payment_capture": 1,
+        "receipt": f"pos_{uuid.uuid4().hex[:16]}"
+    })
+    return {"order_id": order["id"], "amount": amount_paise, "currency": "INR", "key_id": os.environ.get("RAZORPAY_KEY_ID")}
+
+@api_router.post("/pos/razorpay/verify")
+async def razorpay_verify(data: dict = Body(...)):
+    import razorpay as rzp
+    import hmac, hashlib
+    order_id = data.get("razorpay_order_id", "")
+    payment_id = data.get("razorpay_payment_id", "")
+    signature = data.get("razorpay_signature", "")
+    pos_order_id = data.get("pos_order_id", "")
+    secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+    msg = f"{order_id}|{payment_id}"
+    expected = hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    verified = expected == signature
+    if pos_order_id:
+        await db.pos_orders.update_one({"id": pos_order_id}, {"$set": {
+            "razorpay_order_id": order_id, "razorpay_payment_id": payment_id,
+            "payment_status": "paid" if verified else "failed"
+        }})
+    if verified:
+        await mock_whatsapp("payment_received", "pos", pos_order_id, f"UPI Payment received: Rs.{data.get('amount',0)/100} via Razorpay")
+    return {"verified": verified, "payment_id": payment_id}
 
 # --- Estimates ---
 @api_router.get("/estimates")
