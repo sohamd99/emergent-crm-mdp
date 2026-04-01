@@ -95,79 +95,61 @@ export default function POS() {
 
   const handleAIKeyDown = (e) => { if (e.key === "Enter") handleAICart(); };
 
-  // Voice recording with silence detection -> auto AI cart
-  const SILENCE_THRESHOLD = 8;
-  const SILENCE_DURATION = 3000;
+  // Voice: Browser native Speech Recognition (instant, no server round-trip)
+  const startVoice = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { toast.error("Speech not supported in this browser. Use Chrome."); return; }
 
-  const monitorSilence = () => {
-    if (!analyserRef.current) return;
-    const data = new Uint8Array(analyserRef.current.fftSize);
-    analyserRef.current.getByteTimeDomainData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
-    const rms = Math.sqrt(sum / data.length) * 100;
-    if (rms < SILENCE_THRESHOLD) {
-      if (!silenceStartRef.current) silenceStartRef.current = Date.now();
-      else if (Date.now() - silenceStartRef.current > SILENCE_DURATION) { stopVoice(); return; }
-    } else { silenceStartRef.current = null; }
-    rafRef.current = requestAnimationFrame(monitorSilence);
-  };
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    // Support Hindi, Marathi, English - browser auto-detects
+    recognition.lang = "hi-IN"; // Hindi as primary (also catches Marathi), English works too
 
-  const startVoice = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      silenceStartRef.current = null;
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      audioCtxRef.current = audioCtx;
-      analyserRef.current = analyser;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      recorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        streamRef.current?.getTracks().forEach(t => t.stop());
-        if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
-        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-        analyserRef.current = null;
-        if (blob.size < 100) return;
-        // Transcribe then auto-add to cart via single fast endpoint
-        setTranscribing(true);
-        try {
-          const fd = new FormData();
-          fd.append("file", blob, mimeType.includes('mp4') ? 'rec.m4a' : 'rec.webm');
-          const res = await axios.post(`${API}/pos/voice-order`, fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 30000 });
-          const text = res.data.text || res.data.raw_text || "";
-          const items = res.data.items || [];
-          if (text) setAiQuery(text);
-          if (items.length === 0) {
-            toast.error(text ? `"${text}" - no matching products` : "Couldn't hear clearly. Try again.");
-          } else {
-            items.forEach(item => {
-              const prod = products.find(p => p.id === item.product_id);
-              if (prod) { addToCart(prod, item.qty || 1); toast.success(`Added ${prod.name} x${item.qty || 1}`); }
-            });
-            setAiQuery("");
-          }
-        } catch { toast.error("Voice order failed"); }
-        finally { setTranscribing(false); }
-      };
-      recorder.start(250);
-      recorderRef.current = recorder;
-      setIsRecording(true);
-      toast.info("Speak your order... auto-stops when you pause");
-      setTimeout(() => { if (recorderRef.current && recorderRef.current.state === "recording") { rafRef.current = requestAnimationFrame(monitorSilence); } }, 3000);
-    } catch { toast.error("Microphone access denied"); }
+    recognition.onstart = () => { setIsRecording(true); toast.info("Speak now..."); };
+
+    recognition.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      setIsRecording(false);
+      if (!transcript.trim()) { toast.error("Didn't catch that. Try again."); return; }
+
+      setAiQuery(transcript);
+      toast.success(`Heard: "${transcript}"`);
+
+      // Send to AI cart for product matching + translation
+      setAiLoading(true);
+      try {
+        const res = await axios.post(`${API}/pos/ai-cart`, { content: transcript, source: "pos_voice" });
+        const items = res.data.items || [];
+        if (items.length === 0) {
+          toast.error(`"${transcript}" - no matching products`);
+        } else {
+          items.forEach(item => {
+            const prod = products.find(p => p.id === item.product_id);
+            if (prod) { addToCart(prod, item.qty || 1); toast.success(`Added ${prod.name} x${item.qty || 1}`); }
+          });
+          setAiQuery("");
+        }
+      } catch { toast.error("AI matching failed"); }
+      finally { setAiLoading(false); }
+    };
+
+    recognition.onerror = (event) => {
+      setIsRecording(false);
+      if (event.error === "no-speech") toast.error("No speech detected. Try again.");
+      else if (event.error === "not-allowed") toast.error("Microphone access denied.");
+      else toast.error("Voice error: " + event.error);
+    };
+
+    recognition.onend = () => { setIsRecording(false); };
+
+    recorderRef.current = recognition;
+    recognition.start();
   };
 
   const stopVoice = () => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+    if (recorderRef.current) { recorderRef.current.stop(); }
     setIsRecording(false);
   };
 
