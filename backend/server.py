@@ -490,6 +490,37 @@ async def delete_challan(chid: str):
     return {"message": "Deleted"}
 
 # --- Estimates ---
+
+class POSOrderCreate(BaseModel):
+    customer_id: str = ""
+    customer_name: str = ""
+    items: list = []
+    subtotal: float = 0
+    tax: float = 0
+    total: float = 0
+    payment_method: str = "cash"
+    payment_status: str = "paid"
+    notes: str = ""
+
+@api_router.get("/pos/orders")
+async def get_pos_orders():
+    return await db.pos_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+@api_router.post("/pos/orders")
+async def create_pos_order(data: POSOrderCreate):
+    num = await get_next_number("pos_order", "POS")
+    doc = {
+        "id": str(uuid.uuid4()), "order_number": num,
+        "customer_id": data.customer_id, "customer_name": data.customer_name,
+        "items": data.items, "subtotal": data.subtotal, "tax": data.tax, "total": data.total,
+        "payment_method": data.payment_method, "payment_status": data.payment_status,
+        "notes": data.notes, "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.pos_orders.insert_one(doc)
+    await mock_whatsapp("pos_order", "pos", doc["id"], f"POS Order {num} - Rs.{data.total} ({data.payment_method})")
+    return clean(doc)
+
+# --- Estimates ---
 @api_router.get("/estimates")
 async def get_estimates():
     return await db.estimates.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)

@@ -11,6 +11,7 @@ import Quotations from "@/pages/Quotations";
 import Estimates from "@/pages/Estimates";
 import DeliveryChallans from "@/pages/DeliveryChallans";
 import EwayBills from "@/pages/EwayBills";
+import POS from "@/pages/POS";
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
             <Route path="/estimates" element={<Estimates />} />
             <Route path="/challans" element={<DeliveryChallans />} />
             <Route path="/eway-bills" element={<EwayBills />} />
+            <Route path="/pos" element={<POS />} />
           </Routes>
         </main>
       </div>

@@ -136,8 +136,8 @@ export default function Notes() {
   };
 
   // Voice Recording with auto-stop on silence
-  const SILENCE_THRESHOLD = 12; // RMS level below this = silence
-  const SILENCE_DURATION = 2000; // 2 seconds of silence to auto-stop
+  const SILENCE_THRESHOLD = 8; // Lower = less sensitive to silence
+  const SILENCE_DURATION = 3000; // 3 seconds of silence to auto-stop
 
   const monitorSilence = () => {
     if (!analyserRef.current) return;
@@ -206,8 +206,8 @@ export default function Notes() {
       setDetectedLang("");
       toast.info("Listening... Will auto-stop when you pause speaking");
 
-      // Start silence monitoring after a 1.5s grace period
-      setTimeout(() => { rafRef.current = requestAnimationFrame(monitorSilence); }, 1500);
+      // Start silence monitoring after a 3s grace period (so it doesn't stop before you begin)
+      setTimeout(() => { if (recorderRef.current && recorderRef.current.state === "recording") { rafRef.current = requestAnimationFrame(monitorSilence); } }, 3000);
     } catch (err) {
       toast.error("Microphone access denied. Please allow mic permission.");
     }

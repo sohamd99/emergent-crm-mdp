@@ -6,12 +6,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard, FileText, Users, Package, Receipt,
-  FileCheck, FileSpreadsheet, Truck, Route, Menu, Settings, Bell
+  FileCheck, FileSpreadsheet, Truck, Route, Menu, Settings, Bell, ShoppingCart
 } from "lucide-react";
 
 const navItems = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/notes", icon: FileText, label: "Notes" },
+  { path: "/pos", icon: ShoppingCart, label: "POS Billing" },
   { path: "/customers", icon: Users, label: "Customers" },
   { path: "/products", icon: Package, label: "Products" },
   { path: "/invoices", icon: Receipt, label: "Invoices" },
