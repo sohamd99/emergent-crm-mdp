@@ -301,27 +301,30 @@ async def ai_cart_parse(data: NoteCreate):
     prod_ctx = json.dumps([{"name": p["name"], "id": p["id"], "sku": p.get("sku",""), "rate": p.get("rate",0)} for p in products])
 
     system_prompt = f"""You are a POS cart assistant. Parse the user's quick order text and match products from the catalog.
+The input may be in Hindi, Marathi, or English. ALWAYS translate everything to English and convert all numbers to digits.
+Examples: "पंचवीस" or "पच्चीस" = 25, "दस" = 10, "पाच" = 5, "तीन" = 3, "बीस" = 20, "सौ" = 100, "पचास" = 50
+
 PRODUCT CATALOG (POS items only):
 {prod_ctx}
 
-Return ONLY valid JSON array of matched items:
+Return ONLY valid JSON array:
 [{{"product_id": "id", "product_name": "name", "sku": "sku", "rate": 0, "qty": 1}}]
 
 Rules:
-- Match by SKU number (e.g., "125" matches product with SKU containing "125"), product name, or partial match
-- Extract quantity from text (e.g., "qty 50", "x5", "3 nos", "3 pcs", just a number after product)
-- Default qty is 1 if not specified
-- Match multiple products if mentioned (e.g., "pen 3, notebook 2")
-- If no match found, return empty array []
-- SKU matching: "125" should match "SKU-0125" or any SKU containing "125"
-- Be flexible with input: "125 50" means SKU 125, qty 50"""
+- TRANSLATE Hindi/Marathi to English first, then match
+- Convert ALL number words (Hindi/Marathi/English) to digits
+- Match by SKU number, product name, or partial match
+- Extract quantity from text. Default qty is 1
+- SKU matching: "125" matches "SKU-0125" or any SKU containing "125"
+- Be flexible: "125 50" means SKU 125, qty 50
+- If no match found, return empty array []"""
 
     try:
         chat = LlmChat(
             api_key=os.environ.get('EMERGENT_LLM_KEY'),
             session_id=f"pos-{uuid.uuid4()}",
             system_message=system_prompt
-        ).with_model("openai", "gpt-4.1")
+        ).with_model("openai", "gpt-4.1-mini")
 
         response_text = await chat.send_message(UserMessage(text=data.content))
         json_match = re.search(r'\[[\s\S]*\]', response_text)
@@ -330,6 +333,66 @@ Rules:
     except Exception as e:
         logger.error(f"POS AI cart failed: {e}")
         return {"items": [], "error": str(e)}
+
+@api_router.post("/pos/voice-order")
+async def pos_voice_order(file: UploadFile = File(...)):
+    """Single fast endpoint: audio -> transcribe -> translate to English -> match POS products"""
+    from emergentintegrations.llm.openai import OpenAISpeechToText
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+    contents = await file.read()
+    if len(contents) < 100:
+        return {"items": [], "text": "", "error": "Audio too short"}
+
+    ext = ".webm"
+    ct = file.content_type or ""
+    if "wav" in ct: ext = ".wav"
+    elif "mp3" in ct or "mpeg" in ct: ext = ".mp3"
+    elif "mp4" in ct or "m4a" in ct: ext = ".m4a"
+
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    tmp.write(contents)
+    tmp.close()
+
+    try:
+        # Step 1: Fast transcribe
+        stt = OpenAISpeechToText(api_key=os.environ.get('EMERGENT_LLM_KEY'))
+        with open(tmp.name, "rb") as af:
+            response = await stt.transcribe(file=af, model="whisper-1", response_format="text", temperature=0.0)
+        raw_text = response if isinstance(response, str) else getattr(response, 'text', str(response))
+        raw_text = raw_text.strip()
+        if not raw_text:
+            return {"items": [], "text": "", "error": "No speech detected"}
+
+        # Step 2: Translate + match products in ONE GPT call
+        products = await db.products.find({"category": "pos"}, {"_id": 0}).to_list(1000)
+        prod_ctx = json.dumps([{"name": p["name"], "id": p["id"], "sku": p.get("sku",""), "rate": p.get("rate",0)} for p in products])
+
+        chat = LlmChat(
+            api_key=os.environ.get('EMERGENT_LLM_KEY'),
+            session_id=f"posv-{uuid.uuid4()}",
+            system_message=f"""You are a POS voice order processor. The input is transcribed speech that may be in Hindi, Marathi, or English (or mixed).
+Your job: translate to English, extract product names and quantities, match to catalog.
+
+CRITICAL: Convert ALL Hindi/Marathi numbers to digits:
+एक=1, दो/दोन=2, तीन/तीन=3, चार=4, पाच/पांच=5, सहा/छह=6, सात=7, आठ=8, नऊ/नौ=9, दहा/दस=10,
+अकरा/ग्यारह=11, बारा/बारह=12, पंधरा/पंद्रह=15, वीस/बीस=20, पंचवीस/पच्चीस=25, तीस=30, पन्नास/पचास=50, शंभर/सौ=100
+
+PRODUCT CATALOG: {prod_ctx}
+
+Return ONLY valid JSON: {{"english_text": "translated text", "items": [{{"product_id":"id","product_name":"name","sku":"sku","rate":0,"qty":1}}]}}
+If no products matched, return {{"english_text": "translated text", "items": []}}"""
+        ).with_model("openai", "gpt-4.1-mini")
+
+        result = await chat.send_message(UserMessage(text=raw_text))
+        json_match = re.search(r'\{[\s\S]*\}', result)
+        parsed = json.loads(json_match.group()) if json_match else {"english_text": raw_text, "items": []}
+        return {"items": parsed.get("items", []), "text": parsed.get("english_text", raw_text), "raw_text": raw_text}
+    except Exception as e:
+        logger.error(f"POS voice order failed: {e}")
+        return {"items": [], "text": "", "error": str(e)}
+    finally:
+        os.unlink(tmp.name)
 
 @api_router.put("/products/{pid}")
 async def update_product(pid: str, data: ProductCreate):
@@ -836,12 +899,11 @@ async def voice_to_text(file: UploadFile = File(...)):
             response = await stt.transcribe(
                 file=af,
                 model="whisper-1",
-                response_format="verbose_json",
-                prompt="Business billing context: invoices, quotations, delivery challans, e-way bills, customers, products, GST. Speaker may use Hindi, Marathi, or English interchangeably.",
+                response_format="json",
+                prompt="Business billing: invoices, quotations, products, quantities. Hindi, Marathi, English.",
                 temperature=0.0
             )
-        detected_lang = getattr(response, 'language', 'unknown')
-        return {"text": response.text, "language": detected_lang, "success": True}
+        return {"text": response.text, "language": "auto", "success": True}
     except Exception as e:
         logger.error(f"Voice transcription failed: {e}")
         return {"text": "", "error": str(e), "success": False}

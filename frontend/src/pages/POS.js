@@ -136,32 +136,25 @@ export default function POS() {
         if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
         analyserRef.current = null;
         if (blob.size < 100) return;
-        // Transcribe then auto-add to cart
+        // Transcribe then auto-add to cart via single fast endpoint
         setTranscribing(true);
         try {
           const fd = new FormData();
           fd.append("file", blob, mimeType.includes('mp4') ? 'rec.m4a' : 'rec.webm');
-          const res = await axios.post(`${API}/ai/voice-to-text`, fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 });
-          if (res.data.success && res.data.text) {
-            setAiQuery(res.data.text);
-            toast.success(`Voice: "${res.data.text}" - processing...`);
-            // Auto-trigger AI cart with transcribed text
-            setAiLoading(true);
-            try {
-              const cartRes = await axios.post(`${API}/pos/ai-cart`, { content: res.data.text, source: "pos_voice" });
-              const items = cartRes.data.items || [];
-              if (items.length === 0) { toast.error("No matching products found. Try again."); }
-              else {
-                items.forEach(item => {
-                  const prod = products.find(p => p.id === item.product_id);
-                  if (prod) { addToCart(prod, item.qty || 1); toast.success(`Added ${prod.name} x${item.qty || 1}`); }
-                });
-                setAiQuery("");
-              }
-            } catch { toast.error("AI cart failed"); }
-            finally { setAiLoading(false); }
-          } else { toast.error("Couldn't hear clearly. Try again."); }
-        } catch { toast.error("Voice failed"); }
+          const res = await axios.post(`${API}/pos/voice-order`, fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 30000 });
+          const text = res.data.text || res.data.raw_text || "";
+          const items = res.data.items || [];
+          if (text) setAiQuery(text);
+          if (items.length === 0) {
+            toast.error(text ? `"${text}" - no matching products` : "Couldn't hear clearly. Try again.");
+          } else {
+            items.forEach(item => {
+              const prod = products.find(p => p.id === item.product_id);
+              if (prod) { addToCart(prod, item.qty || 1); toast.success(`Added ${prod.name} x${item.qty || 1}`); }
+            });
+            setAiQuery("");
+          }
+        } catch { toast.error("Voice order failed"); }
         finally { setTranscribing(false); }
       };
       recorder.start(250);
