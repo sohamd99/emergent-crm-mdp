@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Edit, Trash2, Package } from "lucide-react";
@@ -11,7 +12,7 @@ import { toast } from "sonner";
 import { formatCurrency } from "@/utils/helpers";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const empty = { name: "", hsn_code: "", unit: "NOS", rate: 0, gst_rate: 18, description: "" };
+const empty = { name: "", hsn_code: "", unit: "NOS", rate: 0, gst_rate: 18, description: "", category: "pos" };
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -37,7 +38,7 @@ export default function Products() {
     } catch { toast.error("Failed to save"); }
   };
 
-  const handleEdit = (p) => { setEditing(p); setForm({ name: p.name, hsn_code: p.hsn_code || "", unit: p.unit || "NOS", rate: p.rate || 0, gst_rate: p.gst_rate || 18, description: p.description || "" }); setShowForm(true); };
+  const handleEdit = (p) => { setEditing(p); setForm({ name: p.name, hsn_code: p.hsn_code || "", unit: p.unit || "NOS", rate: p.rate || 0, gst_rate: p.gst_rate || 18, description: p.description || "", category: p.category || "pos" }); setShowForm(true); };
   const handleDelete = async (id) => { try { await axios.delete(`${API}/products/${id}`); toast.success("Deleted"); fetch(); } catch { toast.error("Failed"); } };
 
   return (
@@ -68,6 +69,7 @@ export default function Products() {
                 <TableHead className="font-semibold text-[#2D3142]">Unit</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">Rate</TableHead>
                 <TableHead className="font-semibold text-[#2D3142]">GST %</TableHead>
+                <TableHead className="font-semibold text-[#2D3142]">Type</TableHead>
                 <TableHead className="text-right font-semibold text-[#2D3142]">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -80,6 +82,7 @@ export default function Products() {
                   <TableCell className="text-[#4F5D75]">{p.unit}</TableCell>
                   <TableCell className="text-[#2D3142] font-medium">Rs. {formatCurrency(p.rate)}</TableCell>
                   <TableCell className="text-[#4F5D75]">{p.gst_rate}%</TableCell>
+                  <TableCell><Badge className={`text-[10px] font-bold rounded-full px-2 py-0.5 border-0 ${p.category === 'service' ? 'bg-[#E07A5F]/15 text-[#E07A5F]' : 'bg-[#81B29A]/15 text-[#81B29A]'}`}>{p.category === 'service' ? 'Service' : 'POS'}</Badge></TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-[#4F5D75] hover:text-[#E07A5F]" onClick={() => handleEdit(p)} data-testid={`edit-product-${p.id}`}>
                       <Edit className="w-4 h-4" />
@@ -107,6 +110,13 @@ export default function Products() {
             <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Rate (Rs.)</Label><Input data-testid="product-rate-input" type="number" value={form.rate} onChange={e => setForm({...form, rate: e.target.value})} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
             <div><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">GST Rate (%)</Label><Input data-testid="product-gst-input" type="number" value={form.gst_rate} onChange={e => setForm({...form, gst_rate: e.target.value})} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
             <div className="sm:col-span-2"><Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Description</Label><Input value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="mt-1 bg-[#F9F8F6] border-[#E5E0DA]" /></div>
+            <div className="sm:col-span-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-[#D4A373]">Category</Label>
+              <div className="flex gap-2 mt-1">
+                <Button type="button" size="sm" variant={form.category === "pos" ? "default" : "outline"} className={form.category === "pos" ? "bg-[#81B29A] hover:bg-[#6fa388] text-white text-xs" : "border-[#E5E0DA] text-xs text-[#4F5D75]"} onClick={() => setForm({...form, category: "pos"})}>POS / Stationary</Button>
+                <Button type="button" size="sm" variant={form.category === "service" ? "default" : "outline"} className={form.category === "service" ? "bg-[#E07A5F] hover:bg-[#C96D55] text-white text-xs" : "border-[#E5E0DA] text-xs text-[#4F5D75]"} onClick={() => setForm({...form, category: "service"})}>Service / Events</Button>
+              </div>
+            </div>
           </div>
           <div className="flex justify-end gap-3 mt-4">
             <Button variant="outline" onClick={() => setShowForm(false)} className="border-[#E5E0DA] text-[#4F5D75]" data-testid="cancel-product-button">Cancel</Button>

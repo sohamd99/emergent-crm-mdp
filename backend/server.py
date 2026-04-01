@@ -44,6 +44,7 @@ class ProductCreate(BaseModel):
     rate: float = 0
     gst_rate: float = 18
     description: str = ""
+    category: str = "pos"
 
 class NoteCreate(BaseModel):
     content: str
@@ -284,6 +285,51 @@ async def search_products(q: str = Query("", min_length=1)):
     regex = {"$regex": q, "$options": "i"}
     results = await db.products.find({"$or": [{"name": regex}, {"sku": regex}, {"hsn_code": regex}]}, {"_id": 0}).limit(20).to_list(20)
     return results
+
+@api_router.get("/products/by-category")
+async def get_products_by_category(cat: str = Query("pos")):
+    return await db.products.find({"category": cat}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+@api_router.post("/pos/ai-cart")
+async def ai_cart_parse(data: NoteCreate):
+    """Parse quick POS commands like '125 qty 50' or 'pen 3, notebook 2' into cart items"""
+    products = await db.products.find({"category": "pos"}, {"_id": 0}).to_list(1000)
+    if not products:
+        return {"items": [], "message": "No POS products found"}
+
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    prod_ctx = json.dumps([{"name": p["name"], "id": p["id"], "sku": p.get("sku",""), "rate": p.get("rate",0)} for p in products])
+
+    system_prompt = f"""You are a POS cart assistant. Parse the user's quick order text and match products from the catalog.
+PRODUCT CATALOG (POS items only):
+{prod_ctx}
+
+Return ONLY valid JSON array of matched items:
+[{{"product_id": "id", "product_name": "name", "sku": "sku", "rate": 0, "qty": 1}}]
+
+Rules:
+- Match by SKU number (e.g., "125" matches product with SKU containing "125"), product name, or partial match
+- Extract quantity from text (e.g., "qty 50", "x5", "3 nos", "3 pcs", just a number after product)
+- Default qty is 1 if not specified
+- Match multiple products if mentioned (e.g., "pen 3, notebook 2")
+- If no match found, return empty array []
+- SKU matching: "125" should match "SKU-0125" or any SKU containing "125"
+- Be flexible with input: "125 50" means SKU 125, qty 50"""
+
+    try:
+        chat = LlmChat(
+            api_key=os.environ.get('EMERGENT_LLM_KEY'),
+            session_id=f"pos-{uuid.uuid4()}",
+            system_message=system_prompt
+        ).with_model("openai", "gpt-4.1")
+
+        response_text = await chat.send_message(UserMessage(text=data.content))
+        json_match = re.search(r'\[[\s\S]*\]', response_text)
+        parsed = json.loads(json_match.group()) if json_match else []
+        return {"items": parsed}
+    except Exception as e:
+        logger.error(f"POS AI cart failed: {e}")
+        return {"items": [], "error": str(e)}
 
 @api_router.put("/products/{pid}")
 async def update_product(pid: str, data: ProductCreate):
@@ -802,7 +848,8 @@ async def execute_ai_plan(plan: dict = Body(...)):
             if not existing_prod:
                 sku = await get_next_number("product", "SKU")
                 prod = {"id": str(uuid.uuid4()), "sku": sku, "name": item["product_name"], "hsn_code": item.get("hsn_code",""), "unit": item.get("unit","NOS"),
-                         "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18)), "description": item.get("description",""), "created_at": datetime.now(timezone.utc).isoformat()}
+                         "rate": float(item.get("rate",0)), "gst_rate": float(item.get("gst_rate",18)), "description": item.get("description",""),
+                         "category": "service", "created_at": datetime.now(timezone.utc).isoformat()}
                 await db.products.insert_one(prod)
                 results["created"].append({"type": "product", "name": item["product_name"]})
 
